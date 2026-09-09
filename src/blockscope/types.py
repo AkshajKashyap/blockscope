@@ -127,3 +127,71 @@ class Block:
             transactions=tuple(Transaction.from_rpc(transaction) for transaction in transactions),
             raw=_plain(data),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class Log:
+    """An Ethereum event log normalized from a transaction receipt."""
+
+    address: str
+    topics: tuple[str, ...]
+    data: str
+    log_index: int
+    transaction_index: int
+    transaction_hash: str
+    removed: bool | None
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+    @classmethod
+    def from_rpc(cls, data: Mapping[str, Any]) -> "Log":
+        """Build a log from its JSON-RPC representation."""
+        removed = data.get("removed")
+        if removed is not None and not isinstance(removed, bool):
+            raise TypeError(f"log removed must be a boolean or null, got {removed!r}")
+        return cls(
+            address=_hex(data["address"], field_name="log address"),
+            topics=tuple(
+                _hex(topic, field_name="log topic") for topic in data.get("topics", ())
+            ),
+            data=_hex(data.get("data", "0x"), field_name="log data"),
+            log_index=_integer(data["logIndex"], field_name="log index"),
+            transaction_index=_integer(
+                data["transactionIndex"], field_name="log transaction index"
+            ),
+            transaction_hash=_hex(data["transactionHash"], field_name="log transaction hash"),
+            removed=removed,
+            raw=_plain(data),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TransactionReceipt:
+    """Receipt fields needed for event-oriented transaction inspection."""
+
+    transaction_hash: str
+    transaction_index: int
+    block_number: int
+    status: int | None
+    gas_used: int
+    logs: tuple[Log, ...]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
+
+    @classmethod
+    def from_rpc(cls, data: Mapping[str, Any]) -> "TransactionReceipt":
+        """Build a receipt and all of its logs from JSON-RPC data."""
+        logs = data.get("logs", ())
+        if not all(isinstance(log, Mapping) for log in logs):
+            raise ValueError("RPC receipt logs must be full log objects")
+        return cls(
+            transaction_hash=_hex(
+                data["transactionHash"], field_name="receipt transaction hash"
+            ),
+            transaction_index=_integer(
+                data["transactionIndex"], field_name="receipt transaction index"
+            ),
+            block_number=_integer(data["blockNumber"], field_name="receipt block number"),
+            status=_optional_integer(data.get("status"), field_name="receipt status"),
+            gas_used=_integer(data["gasUsed"], field_name="receipt gas used"),
+            logs=tuple(Log.from_rpc(log) for log in logs),
+            raw=_plain(data),
+        )

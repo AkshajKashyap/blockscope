@@ -7,6 +7,7 @@ import typer
 
 from blockscope.rpc import BlockScopeError, EthereumRPC
 from blockscope.types import Transaction
+from blockscope.uniswap_v2 import UniswapV2Swap, collect_block_swaps
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -31,6 +32,17 @@ def _transaction_line(transaction: Transaction) -> str:
         f"{_short(transaction.hash):<13} "
         f"{_short(transaction.from_address)} -> {destination} "
         f"value={transaction.value} wei"
+    )
+
+
+def _swap_line(swap: UniswapV2Swap) -> str:
+    return (
+        f"#{swap.transaction_index:<4} "
+        f"log={swap.log_index:<4} "
+        f"pair={_short(swap.pair_address):<13} "
+        f"{swap.direction:<16} "
+        f"in0={swap.amount0_in} in1={swap.amount1_in} "
+        f"out0={swap.amount0_out} out1={swap.amount1_out}"
     )
 
 
@@ -64,6 +76,30 @@ def show_block(
     remaining = len(block.transactions) - limit
     if remaining > 0:
         typer.echo(f"… {remaining} more transaction(s); use --limit to display more")
+
+
+@app.command("swaps")
+def show_swaps(
+    number: Annotated[int, typer.Argument(min=0, help="Ethereum block number")],
+    limit: Annotated[
+        int,
+        typer.Option("--limit", "-l", min=0, help="Maximum swap events to display"),
+    ] = 50,
+) -> None:
+    """Display Uniswap V2-compatible Pair Swap events in a block."""
+    try:
+        swaps = collect_block_swaps(EthereumRPC.from_env(), number)
+    except (BlockScopeError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Uniswap V2-compatible Pair Swap Events — Ethereum Block {number}\n")
+    for swap in swaps[:limit]:
+        typer.echo(_swap_line(swap))
+    remaining = len(swaps) - limit
+    if remaining > 0:
+        typer.echo(f"… {remaining} more event(s); use --limit to display more")
+    typer.echo(f"\n{len(swaps)} supported swap event(s)")
 
 
 if __name__ == "__main__":

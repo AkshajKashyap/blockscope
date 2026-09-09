@@ -5,7 +5,7 @@ from collections.abc import Mapping
 
 from web3 import Web3
 
-from blockscope.types import Block
+from blockscope.types import Block, TransactionReceipt
 
 
 class BlockScopeError(Exception):
@@ -56,3 +56,15 @@ class EthereumRPC:
             raise
         except Exception as exc:
             raise RPCError(f"Could not fetch Ethereum block {number}: {exc}") from exc
+
+    def get_transaction_receipt(self, transaction_hash: str) -> TransactionReceipt:
+        """Fetch and normalize a transaction receipt and all of its logs."""
+        try:
+            receipt_data = self._web3.eth.get_transaction_receipt(transaction_hash)
+            return TransactionReceipt.from_rpc(receipt_data)
+        except BlockScopeError:
+            raise
+        except Exception as exc:
+            raise RPCError(
+                f"Could not fetch receipt for transaction {transaction_hash}: {exc}"
+            ) from exc
