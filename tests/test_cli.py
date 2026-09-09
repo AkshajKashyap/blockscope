@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 from typer.testing import CliRunner
 
 from blockscope.cli import app
+from blockscope.counterfactual import CounterfactualAnalysis, CounterfactualDiagnostics
 from blockscope.types import Block, Transaction
 from blockscope.uniswap_v2 import (
     BlockSwapAnalysis,
@@ -143,3 +144,32 @@ def test_sandwiches_command_reports_zero_candidates_without_overclaiming() -> No
     assert "0 strict sandwich candidate(s)" in result.output
     assert "Potential front legs considered: 0" in result.output
     assert "confirmed" not in result.output.lower()
+
+
+def test_sandwiches_counterfactual_flag_runs_replay_and_includes_observed_context() -> None:
+    swap_analysis = BlockSwapAnalysis(
+        17_000_000,
+        (),
+        SwapDiagnostics(0, 0, 0, 0, 0, 0, 0),
+    )
+    counterfactual_analysis = CounterfactualAnalysis(
+        (),
+        CounterfactualDiagnostics(0, 0, 0, 0, 0, 0),
+    )
+    rpc = Mock()
+
+    with (
+        patch("blockscope.cli.EthereumRPC.from_env", return_value=rpc),
+        patch("blockscope.cli.analyze_block_swaps", return_value=swap_analysis),
+        patch(
+            "blockscope.cli.analyze_fixed_input_counterfactuals",
+            return_value=counterfactual_analysis,
+        ) as analyze_counterfactuals,
+    ):
+        result = runner.invoke(app, ["sandwiches", "17000000", "--counterfactual"])
+
+    assert result.exit_code == 0
+    assert "Observed-economics diagnostics" in result.output
+    assert "Counterfactual diagnostics" in result.output
+    assert "Canonical provenance established: 0" in result.output
+    analyze_counterfactuals.assert_called_once_with(rpc, 17_000_000, ())

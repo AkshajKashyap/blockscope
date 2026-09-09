@@ -69,6 +69,13 @@ class EthereumRPC:
                 f"Could not fetch receipt for transaction {transaction_hash}: {exc}"
             ) from exc
 
+    def get_chain_id(self) -> int:
+        """Return the connected Ethereum chain identifier."""
+        try:
+            return int(self._web3.eth.chain_id)
+        except Exception as exc:
+            raise RPCError(f"Could not determine Ethereum chain ID: {exc}") from exc
+
     def eth_call(self, contract_address: str, call_data: str, block_number: int) -> bytes:
         """Execute a read-only contract call against historical block state."""
         if block_number < 0:

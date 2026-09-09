@@ -7,6 +7,10 @@ from typing import Annotated
 
 import typer
 
+from blockscope.counterfactual import (
+    FixedInputCounterfactual,
+    analyze_fixed_input_counterfactuals,
+)
 from blockscope.economics import (
     ObservedAmount,
     ObservedAsset,
@@ -129,6 +133,14 @@ def _gas_fee(value: int | None) -> str:
     return "unavailable" if value is None else f"{value} wei"
 
 
+def _exact_decimal_amount(raw_amount: int, decimals: int | None) -> str | None:
+    if decimals is None:
+        return None
+    with localcontext() as context:
+        context.prec = max(28, len(str(abs(raw_amount))) + decimals + 2)
+        return format(Decimal(raw_amount).scaleb(-decimals), "f")
+
+
 def _economics_lines(economics: ObservedSandwichEconomics) -> tuple[str, ...]:
     victim_lines: list[str] = []
     for index, victim in enumerate(economics.victim_executions, start=1):
@@ -186,8 +198,88 @@ def _economics_lines(economics: ObservedSandwichEconomics) -> tuple[str, ...]:
         ),
         *invariant_lines,
         "Important: gross pair-level cycle delta is not wallet-level profit.",
-        "Important: victim counterfactual loss has not been calculated.",
+        "Important: observed economics alone do not calculate victim counterfactual loss.",
     )
+
+
+def _counterfactual_lines(result: FixedInputCounterfactual) -> tuple[str, ...]:
+    provenance = result.provenance
+    lines = [
+        "Fixed-input Pair-Level Counterfactual",
+        f"  Model state: {result.status.value}",
+        f"  Ethereum chain ID: {provenance.chain_id}",
+        f"  Canonical Uniswap V2 provenance: {'yes' if provenance.established else 'no'}",
+        f"  Pair-reported factory: {provenance.pair_reported_factory_address}",
+        f"  Canonical factory getPair result: {provenance.factory_get_pair_address}",
+        "  Intervention: remove front reserve effect; hold victim pair input fixed",
+    ]
+    if not result.victims:
+        lines.append(f"  Unavailable reason: {result.unavailable_reason}")
+        return tuple(lines)
+
+    direction = result.candidate.direction
+    if direction == "token0 -> token1":
+        metadata = result.candidate.front_run.token1_metadata
+        output_position = "token1"
+    else:
+        metadata = result.candidate.front_run.token0_metadata
+        output_position = "token0"
+    output_identity = (
+        output_position
+        if metadata is None
+        else f"{metadata.symbol or output_position} ({metadata.address})"
+    )
+    decimals = None if metadata is None else metadata.decimals
+    for index, execution in enumerate(result.victims, start=1):
+        normalized_delta = _exact_decimal_amount(execution.pair_output_delta, decimals)
+        delta_display = f"{execution.pair_output_delta:+d} raw {output_identity}"
+        if normalized_delta is not None:
+            delta_display += f" ({normalized_delta} decimal-normalized)"
+        relative = (
+            "unavailable"
+            if execution.relative_output_improvement is None
+            else _fraction_decimal(execution.relative_output_improvement)
+        )
+        lines.extend(
+            (
+                f"  Victim {index}: tx #{execution.victim.swap.transaction_index}",
+                (
+                    "    Observed: input="
+                    f"{execution.observed_input} output={execution.observed_output} "
+                    f"pre=({execution.observed_pre_reserves.reserve0}, "
+                    f"{execution.observed_pre_reserves.reserve1}) "
+                    f"post=({execution.observed_post_reserves.reserve0}, "
+                    f"{execution.observed_post_reserves.reserve1})"
+                ),
+                (
+                    "    Counterfactual: fixed_input="
+                    f"{execution.fixed_input} output={execution.counterfactual_output} "
+                    f"pre=({execution.counterfactual_pre_reserves.reserve0}, "
+                    f"{execution.counterfactual_pre_reserves.reserve1}) "
+                    f"post=({execution.counterfactual_post_reserves.reserve0}, "
+                    f"{execution.counterfactual_post_reserves.reserve1})"
+                ),
+                f"    Counterfactual pair-output delta: {delta_display}",
+                f"    Relative output improvement (delta/observed output): {relative}",
+                (
+                    "    Observed-model validation: canonical maximum="
+                    f"{execution.observed_model_quote} observed={execution.observed_output} "
+                    f"difference={execution.observed_model_difference:+d} "
+                    f"exact={'yes' if execution.observed_model_exact_match else 'no'}"
+                ),
+            )
+        )
+    lines.extend(
+        (
+            f"  Aggregate observed output: {result.aggregate_observed_output}",
+            f"  Aggregate counterfactual output: {result.aggregate_counterfactual_output}",
+            f"  Aggregate pair-output delta: {result.aggregate_pair_output_delta:+d}",
+            "  Replay stops after the final victim; the back leg is not replayed.",
+            "  Important: this is fixed-input pair modeling, not full EVM replay.",
+            "  Important: this does not prove what the victim wallet would have received.",
+        )
+    )
+    return tuple(lines)
 
 
 @app.command("block")
@@ -276,14 +368,27 @@ def show_sandwiches(
         bool,
         typer.Option("--economics", help="Show observed pair-level economics"),
     ] = False,
+    counterfactual: Annotated[
+        bool,
+        typer.Option(
+            "--counterfactual",
+            help="Show canonical fixed-input pair-level victim replay",
+        ),
+    ] = False,
 ) -> None:
     """Display conservative strict sandwich candidates in a block."""
     try:
-        swap_analysis = analyze_block_swaps(EthereumRPC.from_env(), number)
+        rpc = EthereumRPC.from_env()
+        swap_analysis = analyze_block_swaps(rpc, number)
         result = detect_strict_sandwich_candidates(swap_analysis.swaps)
         economics_analysis = (
             analyze_observed_sandwich_economics(result.candidates, swap_analysis.receipts)
-            if economics
+            if economics or counterfactual
+            else None
+        )
+        counterfactual_analysis = (
+            analyze_fixed_input_counterfactuals(rpc, number, result.candidates)
+            if counterfactual
             else None
         )
     except (BlockScopeError, ValueError) as exc:
@@ -296,6 +401,9 @@ def show_sandwiches(
             typer.echo(line)
         if economics_analysis is not None:
             for line in _economics_lines(economics_analysis.candidates[index - 1]):
+                typer.echo(line)
+        if counterfactual_analysis is not None:
+            for line in _counterfactual_lines(counterfactual_analysis.candidates[index - 1]):
                 typer.echo(line)
         typer.echo()
     remaining = len(result.candidates) - limit
@@ -345,6 +453,32 @@ def show_sandwiches(
         )
         typer.echo(
             f"Missing token metadata: {economics_diagnostics.missing_token_metadata}"
+        )
+    if counterfactual_analysis is not None:
+        counterfactual_diagnostics = counterfactual_analysis.diagnostics
+        typer.echo("\nCounterfactual diagnostics")
+        typer.echo(
+            "Canonical provenance established: "
+            f"{counterfactual_diagnostics.canonical_provenance_established}"
+        )
+        typer.echo(
+            "Canonical provenance unavailable: "
+            f"{counterfactual_diagnostics.canonical_provenance_unavailable}"
+        )
+        typer.echo(
+            f"Counterfactuals computed: {counterfactual_diagnostics.counterfactuals_computed}"
+        )
+        typer.echo(
+            "Invalid reserve/input cases: "
+            f"{counterfactual_diagnostics.invalid_reserve_or_input_cases}"
+        )
+        typer.echo(
+            "Observed-model exact matches: "
+            f"{counterfactual_diagnostics.observed_model_exact_matches}"
+        )
+        typer.echo(
+            "Observed-model mismatches: "
+            f"{counterfactual_diagnostics.observed_model_mismatches}"
         )
 
 

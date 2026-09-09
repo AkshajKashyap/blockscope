@@ -2,7 +2,7 @@
 
 BlockScope is the foundation of a counterfactual Ethereum execution and MEV analysis engine.
 
-## Current status: Milestone 5
+## Current status: Milestone 6
 
 BlockScope currently fetches historical Ethereum blocks and transaction receipts over JSON-RPC,
 normalizes their transactions and logs into provider-independent typed models, and prints concise
@@ -18,10 +18,15 @@ For each candidate, BlockScope can report **observed sandwich economics**: exact
 and victim Swap flows, actual mined transaction gas expense, actual victim execution ratios, and
 reserve-product evidence. These observations are not wallet-level profit or counterfactual loss.
 
+For pairs whose canonical Ethereum-mainnet Uniswap V2 provenance can be established, BlockScope
+can also compute a **fixed-input pair-level counterfactual**. It removes the front leg's reserve
+effect, holds each victim's observed pair input fixed, and quotes the resulting output with the
+canonical V2 integer formula. This is an AMM calculation, not arbitrary transaction replay.
+
 Matching the event signature identifies Uniswap V2-compatible events; it does not prove that a
 pair was deployed by the official Uniswap factory. BlockScope queries and displays the pair's
-actual `factory()` address without using it as a filter. Generalized MEV classification,
-transaction tracing, profit calculation, and counterfactual replay are **not implemented yet**.
+actual `factory()` address without using it as a detector filter. Generalized MEV classification,
+transaction tracing, wallet-level profit calculation, and full EVM replay are **not implemented**.
 
 ## Setup
 
@@ -62,7 +67,11 @@ Scan for strict sandwich candidates with:
 blockscope sandwiches 17000000
 blockscope sandwiches 17000000 --limit 20
 blockscope sandwiches 17000000 --economics
+blockscope sandwiches 17000000 --counterfactual
 ```
+
+`--counterfactual` also shows the observed economics, so `--economics` is not required alongside
+it.
 
 The decoder supports exactly these canonical event shapes:
 
@@ -130,7 +139,8 @@ deduplicated by the complete ordered sequence of `(transaction_index, log_index)
 sorted by front-leg execution order. The scanner does not search combinatorial subsets of victims.
 
 Strict candidates are evidence-bearing historical patterns, **not confirmed sandwich attacks**.
-BlockScope does not yet calculate attacker profit, victim loss, or counterfactual victim output.
+The detector alone does not calculate attacker profit, victim loss, or counterfactual output; the
+optional fixed-input model described below is a separate, explicitly limited analysis.
 
 ## Observed sandwich economics
 
@@ -169,6 +179,55 @@ behavior.
 
 Not established by observed economics: transaction-wide balance changes, actor profit, net profit,
 intent, beneficial ownership, mempool observation, bundle usage, or counterfactual victim loss.
+
+## Fixed-input pair-level counterfactual
+
+The counterfactual asks one narrow question: if the front leg had not changed the pair reserves,
+and every victim supplied the same amount that actually entered the pair, what output would
+canonical Uniswap V2 pricing produce? The intervention holds the observed pair input fixed because
+Swap logs do not reveal whether the transaction expressed exact-input, exact-output, router,
+multi-hop, fee-on-transfer, or custom-contract intent.
+
+Canonical pricing is enabled only when all historical provenance checks succeed on Ethereum
+mainnet:
+
+```text
+pair.factory() == 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f
+and
+canonical_factory.getPair(pair.token0(), pair.token1()) == pair_address
+```
+
+The `getPair` call is made at the analyzed block. If either check is unavailable or fails, the
+candidate and its observed economics remain visible, but the counterfactual is marked unavailable.
+This prevents BlockScope from assigning the canonical 0.30% fee model to an arbitrary
+V2-compatible fork.
+
+For positive input and reserves, the pure pricing function uses Python integers and the official
+Solidity-style floor operation:
+
+```text
+amount_in_with_fee = amount_in * 997
+amount_out = (amount_in_with_fee * reserve_out)
+             // (reserve_in * 1000 + amount_in_with_fee)
+```
+
+Replay begins at the front leg's pre-reserves—not the first victim's observed pre-reserves—and
+ends after the last victim. Victims are replayed in execution order, so each sees the preceding
+victim's counterfactual post-state. The observed and counterfactual pre/post reserves, fixed input,
+outputs, and signed pair-output delta are retained per victim. Aggregates are exact raw output-token
+integers; the displayed relative improvement is `pair_output_delta / observed_output` and is kept
+as an exact rational internally.
+
+As a model check, BlockScope also applies canonical pricing to each victim's observed pre-state and
+observed pair input. Exact agreement with the observed Swap output receives the strongest
+categorical model state. A mismatch remains visible and computed but is labeled model-limited,
+because a caller may request less than the router's maximum quote.
+
+Counterfactual pair output is not necessarily what a wallet would have received: transfer-tax and
+other unusual tokens can make pair and wallet flows differ. This result is not full EVM replay,
+does not establish whether the original transaction would still execute, does not replay the back
+leg, and is not automatically victim loss. Counterfactual output deltas are never combined with
+the outer transactions' gas fees.
 
 ## Development
 

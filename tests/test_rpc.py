@@ -94,3 +94,11 @@ def test_eth_call_failure_has_contract_and_block_context() -> None:
 
     with pytest.raises(RPCError, match="0xabc at block 123"):
         client.eth_call("0xabc", "0x12345678", 123)
+
+
+def test_get_chain_id_normalizes_web3_value() -> None:
+    client = EthereumRPC("https://rpc.example")
+    client._web3 = Mock()
+    client._web3.eth.chain_id = 1
+
+    assert client.get_chain_id() == 1
