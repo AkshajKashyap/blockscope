@@ -156,6 +156,7 @@ class BlockSwapAnalysis:
     block_number: int
     swaps: tuple[EnrichedUniswapV2Swap, ...]
     diagnostics: SwapDiagnostics
+    receipts: tuple[TransactionReceipt, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,6 +357,7 @@ def _scan_block(
 ) -> tuple[
     tuple[SwapReserveContext, ...],
     dict[tuple[int, str], str],
+    tuple[TransactionReceipt, ...],
     int,
     int,
     int,
@@ -366,11 +368,13 @@ def _scan_block(
         for transaction in block.transactions
     }
     contexts: list[SwapReserveContext] = []
+    receipts: list[TransactionReceipt] = []
     malformed_swap_logs = 0
     malformed_sync_logs = 0
     invalid_reconstructions = 0
     for transaction in block.transactions:
         receipt = rpc.get_transaction_receipt(transaction.hash)
+        receipts.append(receipt)
         scan = scan_receipt_swap_evidence(receipt)
         contexts.extend(scan.swaps)
         malformed_swap_logs += scan.malformed_swap_logs
@@ -380,6 +384,7 @@ def _scan_block(
     return (
         tuple(contexts),
         transaction_senders,
+        tuple(receipts),
         malformed_swap_logs,
         malformed_sync_logs,
         invalid_reconstructions,
@@ -388,7 +393,7 @@ def _scan_block(
 
 def collect_block_swaps(rpc: EthereumRPC, block_number: int) -> tuple[UniswapV2Swap, ...]:
     """Fetch each receipt once and return all valid Swap events without metadata calls."""
-    contexts, _, _, _, _ = _scan_block(rpc, block_number)
+    contexts, _, _, _, _, _ = _scan_block(rpc, block_number)
     return tuple(context.swap for context in contexts)
 
 
@@ -493,6 +498,7 @@ def analyze_block_swaps(rpc: EthereumRPC, block_number: int) -> BlockSwapAnalysi
     (
         contexts,
         transaction_senders,
+        receipts,
         malformed_swaps,
         malformed_syncs,
         invalid_reconstructions,
@@ -524,4 +530,4 @@ def analyze_block_swaps(rpc: EthereumRPC, block_number: int) -> BlockSwapAnalysi
         invalid_reserve_reconstructions=invalid_reconstructions,
         metadata_lookup_failures=resolver.lookup_failures,
     )
-    return BlockSwapAnalysis(block_number, tuple(enriched), diagnostics)
+    return BlockSwapAnalysis(block_number, tuple(enriched), diagnostics, receipts)

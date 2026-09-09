@@ -174,6 +174,7 @@ class TransactionReceipt:
     status: int | None
     gas_used: int
     logs: tuple[Log, ...]
+    effective_gas_price: int | None = None
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
@@ -193,5 +194,8 @@ class TransactionReceipt:
             status=_optional_integer(data.get("status"), field_name="receipt status"),
             gas_used=_integer(data["gasUsed"], field_name="receipt gas used"),
             logs=tuple(Log.from_rpc(log) for log in logs),
+            effective_gas_price=_optional_integer(
+                data.get("effectiveGasPrice"), field_name="receipt effective gas price"
+            ),
             raw=_plain(data),
         )

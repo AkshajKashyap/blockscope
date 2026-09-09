@@ -52,6 +52,7 @@ def test_rpc_fetches_and_normalizes_transaction_receipt() -> None:
         "blockNumber": 3,
         "status": 1,
         "gasUsed": 21_000,
+        "effectiveGasPrice": 30_000_000_000,
         "logs": [],
     }
 
@@ -59,6 +60,7 @@ def test_rpc_fetches_and_normalizes_transaction_receipt() -> None:
 
     assert receipt.transaction_hash == "0x01"
     assert receipt.status == 1
+    assert receipt.effective_gas_price == 30_000_000_000
     client._web3.eth.get_transaction_receipt.assert_called_once_with("0x01")
 
 

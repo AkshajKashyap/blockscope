@@ -2,7 +2,7 @@
 
 BlockScope is the foundation of a counterfactual Ethereum execution and MEV analysis engine.
 
-## Current status: Milestone 4
+## Current status: Milestone 5
 
 BlockScope currently fetches historical Ethereum blocks and transaction receipts over JSON-RPC,
 normalizes their transactions and logs into provider-independent typed models, and prints concise
@@ -13,6 +13,10 @@ state immediately before and after supported swaps.
 BlockScope can also scan those exact reserve transitions for **strict sandwich candidates**. This
 is deliberately a high-precision, low-recall structural detector. Candidates are not confirmed
 attacks and do not establish intent, mempool visibility, beneficial ownership, or profitability.
+
+For each candidate, BlockScope can report **observed sandwich economics**: exact pair-level outer
+and victim Swap flows, actual mined transaction gas expense, actual victim execution ratios, and
+reserve-product evidence. These observations are not wallet-level profit or counterfactual loss.
 
 Matching the event signature identifies Uniswap V2-compatible events; it does not prove that a
 pair was deployed by the official Uniswap factory. BlockScope queries and displays the pair's
@@ -57,6 +61,7 @@ Scan for strict sandwich candidates with:
 ```bash
 blockscope sandwiches 17000000
 blockscope sandwiches 17000000 --limit 20
+blockscope sandwiches 17000000 --economics
 ```
 
 The decoder supports exactly these canonical event shapes:
@@ -126,6 +131,44 @@ sorted by front-leg execution order. The scanner does not search combinatorial s
 
 Strict candidates are evidence-bearing historical patterns, **not confirmed sandwich attacks**.
 BlockScope does not yet calculate attacker profit, victim loss, or counterfactual victim output.
+
+## Observed sandwich economics
+
+The optional `--economics` view separates values observed at the candidate pair from claims that
+would require transaction-wide flow attribution or counterfactual execution. For an outer cycle
+that starts with token A, receives token B, sends B back, and receives A:
+
+```text
+gross_outer_leg_cycle_delta_A = back_output_A - front_input_A
+intermediate_inventory_delta_B = front_output_B - back_input_B
+```
+
+Both are signed raw integers. A positive gross cycle delta means more raw A emerged from the two
+observed Pair Swap legs than entered them; it is not automatically actor wallet profit. A positive
+intermediate inventory delta means some observed B output was not consumed by the back Swap. A
+negative value means the back Swap required B from somewhere not explained by the front Pair Swap.
+
+For each victim, actual raw execution is `observed_output / observed_input`, represented exactly as
+a rational number. There is no hypothetical no-front execution and therefore no victim-loss
+calculation.
+
+Receipt gas expense is calculated exactly when `effectiveGasPrice` is available:
+
+```text
+gas_fee_wei = gas_used * effective_gas_price
+```
+
+Front and back gas are reported separately and combined only with each other. Native ETH gas is
+not subtracted from token-denominated cycle deltas. In particular, WETH pair flow and native ETH
+gas remain distinct observations.
+
+For every candidate Swap, the view reports `k_pre`, `k_post`, and `k_delta`, where
+`k = reserve0 * reserve1`. A decrease is surfaced as unusual evidence rather than used to reject a
+V2-compatible event. BlockScope does not assume every compatible pair has canonical fee or token
+behavior.
+
+Not established by observed economics: transaction-wide balance changes, actor profit, net profit,
+intent, beneficial ownership, mempool observation, bundle usage, or counterfactual victim loss.
 
 ## Development
 

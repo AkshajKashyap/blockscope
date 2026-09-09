@@ -7,6 +7,12 @@ from typing import Annotated
 
 import typer
 
+from blockscope.economics import (
+    ObservedAmount,
+    ObservedAsset,
+    ObservedSandwichEconomics,
+    analyze_observed_sandwich_economics,
+)
 from blockscope.rpc import BlockScopeError, EthereumRPC
 from blockscope.sandwiches import SandwichCandidate, detect_strict_sandwich_candidates
 from blockscope.types import Transaction
@@ -107,6 +113,83 @@ def _candidate_lines(index: int, candidate: SandwichCandidate) -> tuple[str, ...
     )
 
 
+def _asset_label(asset: ObservedAsset) -> str:
+    identity = asset.symbol or asset.pair_position
+    address = asset.address or "address unavailable"
+    decimals = "?" if asset.decimals is None else str(asset.decimals)
+    return f"{identity} ({address}, decimals={decimals})"
+
+
+def _observed_amount(amount: ObservedAmount, *, signed: bool = False) -> str:
+    raw = f"{amount.raw_amount:+d}" if signed else str(amount.raw_amount)
+    return f"{raw} raw {_asset_label(amount.asset)}"
+
+
+def _gas_fee(value: int | None) -> str:
+    return "unavailable" if value is None else f"{value} wei"
+
+
+def _economics_lines(economics: ObservedSandwichEconomics) -> tuple[str, ...]:
+    victim_lines: list[str] = []
+    for index, victim in enumerate(economics.victim_executions, start=1):
+        ratio = (
+            "unavailable (zero/invalid input)"
+            if victim.actual_raw_execution_ratio is None
+            else _fraction_decimal(victim.actual_raw_execution_ratio)
+        )
+        victim_lines.extend(
+            (
+                f"  Victim {index} actual input:  {_observed_amount(victim.input_amount)}",
+                f"  Victim {index} actual output: {_observed_amount(victim.output_amount)}",
+                f"  Victim {index} actual raw execution ratio: {ratio}",
+                f"  Victim {index} gas fee: {_gas_fee(victim.gas_fee_wei)}",
+                (
+                    f"  Victim {index} invariant: k_pre={victim.invariant.k_pre} "
+                    f"k_post={victim.invariant.k_post} k_delta={victim.invariant.k_delta:+d}"
+                ),
+            )
+        )
+    invariant_lines = tuple(
+        (
+            f"  Outer {label} invariant: k_pre={invariant.k_pre} "
+            f"k_post={invariant.k_post} k_delta={invariant.k_delta:+d}"
+        )
+        for label, invariant in zip(("front", "back"), economics.outer_invariants, strict=True)
+    )
+    return (
+        "Observed outer pair cycle",
+        f"  Front spent:    {_observed_amount(economics.front_input)}",
+        f"  Front received: {_observed_amount(economics.front_output)}",
+        f"  Back spent:     {_observed_amount(economics.back_input)}",
+        f"  Back received:  {_observed_amount(economics.back_output)}",
+        (
+            "  Gross outer-leg cycle delta: "
+            f"{_observed_amount(economics.gross_cycle_delta, signed=True)}"
+        ),
+        (
+            "  Intermediate inventory delta: "
+            f"{_observed_amount(economics.intermediate_inventory_delta, signed=True)}"
+        ),
+        "Outer transaction gas expenditure (native ETH, reported in wei)",
+        f"  Front: {_gas_fee(economics.front_gas_fee_wei)}",
+        f"  Back:  {_gas_fee(economics.back_gas_fee_wei)}",
+        f"  Total: {_gas_fee(economics.total_outer_gas_fee_wei)}",
+        "Victim actual execution",
+        *victim_lines,
+        (
+            "  Aggregate victim input:  "
+            f"{_observed_amount(economics.aggregate_victim_input)}"
+        ),
+        (
+            "  Aggregate victim output: "
+            f"{_observed_amount(economics.aggregate_victim_output)}"
+        ),
+        *invariant_lines,
+        "Important: gross pair-level cycle delta is not wallet-level profit.",
+        "Important: victim counterfactual loss has not been calculated.",
+    )
+
+
 @app.command("block")
 def show_block(
     number: Annotated[int, typer.Argument(min=0, help="Ethereum block number")],
@@ -189,11 +272,20 @@ def show_sandwiches(
         int,
         typer.Option("--limit", "-l", min=0, help="Maximum candidates to display"),
     ] = 20,
+    economics: Annotated[
+        bool,
+        typer.Option("--economics", help="Show observed pair-level economics"),
+    ] = False,
 ) -> None:
     """Display conservative strict sandwich candidates in a block."""
     try:
         swap_analysis = analyze_block_swaps(EthereumRPC.from_env(), number)
         result = detect_strict_sandwich_candidates(swap_analysis.swaps)
+        economics_analysis = (
+            analyze_observed_sandwich_economics(result.candidates, swap_analysis.receipts)
+            if economics
+            else None
+        )
     except (BlockScopeError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -202,6 +294,9 @@ def show_sandwiches(
     for index, candidate in enumerate(result.candidates[:limit], start=1):
         for line in _candidate_lines(index, candidate):
             typer.echo(line)
+        if economics_analysis is not None:
+            for line in _economics_lines(economics_analysis.candidates[index - 1]):
+                typer.echo(line)
         typer.echo()
     remaining = len(result.candidates) - limit
     if remaining > 0:
@@ -232,6 +327,25 @@ def show_sandwiches(
         f"{diagnostics.rejected_back_run_reversal}"
     )
     typer.echo(f"Duplicate candidates suppressed: {diagnostics.duplicate_candidates_suppressed}")
+    if economics_analysis is not None:
+        economics_diagnostics = economics_analysis.diagnostics
+        typer.echo("\nObserved-economics diagnostics")
+        typer.echo(f"Economics calculated: {economics_diagnostics.economics_calculated}")
+        typer.echo(
+            "Missing receipt gas data: "
+            f"{economics_diagnostics.missing_receipt_gas_data}"
+        )
+        typer.echo(
+            "Invalid or zero victim inputs: "
+            f"{economics_diagnostics.invalid_or_zero_victim_inputs}"
+        )
+        typer.echo(
+            "Unusual invariant decreases: "
+            f"{economics_diagnostics.unusual_invariant_decreases}"
+        )
+        typer.echo(
+            f"Missing token metadata: {economics_diagnostics.missing_token_metadata}"
+        )
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ def receipt_data(**overrides: object) -> dict[str, object]:
         "blockNumber": 17_000_000,
         "status": 1,
         "gasUsed": 125_000,
+        "effectiveGasPrice": 20_000_000_000,
         "logs": [log_data()],
     }
     data.update(overrides)
@@ -36,6 +37,7 @@ def test_normalizes_successful_receipt_and_hexbytes_log_fields() -> None:
     assert receipt.block_number == 17_000_000
     assert receipt.status == 1
     assert receipt.gas_used == 125_000
+    assert receipt.effective_gas_price == 20_000_000_000
     assert len(receipt.logs) == 1
     assert receipt.logs[0].address == "0x" + "aa" * 20
     assert receipt.logs[0].topics == (
@@ -67,3 +69,12 @@ def test_normalizes_empty_logs_and_missing_status() -> None:
 
     assert receipt.logs == ()
     assert receipt.status is None
+
+
+def test_allows_missing_effective_gas_price() -> None:
+    data = receipt_data()
+    del data["effectiveGasPrice"]
+
+    receipt = TransactionReceipt.from_rpc(data)
+
+    assert receipt.effective_gas_price is None
