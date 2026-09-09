@@ -69,3 +69,26 @@ def test_receipt_rpc_failure_is_wrapped_with_transaction_context() -> None:
 
     with pytest.raises(RPCError, match="Could not fetch receipt for transaction 0xabc"):
         client.get_transaction_receipt("0xabc")
+
+
+def test_eth_call_uses_historical_block_identifier_and_normalizes_bytes() -> None:
+    client = EthereumRPC("https://rpc.example")
+    client._web3 = Mock()
+    client._web3.eth.call.return_value = bytes.fromhex("00" * 31 + "12")
+
+    result = client.eth_call("0x" + "aa" * 20, "0x12345678", 17_000_000)
+
+    assert result == bytes.fromhex("00" * 31 + "12")
+    client._web3.eth.call.assert_called_once_with(
+        {"to": "0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa", "data": "0x12345678"},
+        block_identifier=17_000_000,
+    )
+
+
+def test_eth_call_failure_has_contract_and_block_context() -> None:
+    client = EthereumRPC("https://rpc.example")
+    client._web3 = Mock()
+    client._web3.eth.call.side_effect = OSError("historical state unavailable")
+
+    with pytest.raises(RPCError, match="0xabc at block 123"):
+        client.eth_call("0xabc", "0x12345678", 123)

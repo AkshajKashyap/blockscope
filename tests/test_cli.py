@@ -4,7 +4,16 @@ from typer.testing import CliRunner
 
 from blockscope.cli import app
 from blockscope.types import Block, Transaction
-from blockscope.uniswap_v2 import UniswapV2Swap
+from blockscope.uniswap_v2 import (
+    BlockSwapAnalysis,
+    EnrichedUniswapV2Swap,
+    ReserveState,
+    SwapDiagnostics,
+    SwapReserveContext,
+    TokenMetadata,
+    UniswapV2PairMetadata,
+    UniswapV2Swap,
+)
 
 runner = CliRunner()
 
@@ -60,26 +69,44 @@ def test_block_command_displays_summary_and_obeys_limit() -> None:
 
 
 def test_swaps_command_displays_raw_events_and_obeys_limit() -> None:
-    swaps = tuple(
-        UniswapV2Swap(
-            block_number=17_000_000,
-            transaction_hash=f"0x{index:064x}",
-            transaction_index=index,
-            log_index=index + 10,
-            pair_address="0x" + "aa" * 20,
-            sender="0x" + "bb" * 20,
-            recipient="0x" + "cc" * 20,
-            amount0_in=100 + index,
-            amount1_in=0,
-            amount0_out=0,
-            amount1_out=200 + index,
+    pair = UniswapV2PairMetadata(
+        pair_address="0x" + "aa" * 20,
+        factory_address="0x" + "dd" * 20,
+        token0_address="0x" + "01" * 20,
+        token1_address="0x" + "02" * 20,
+    )
+    swaps = []
+    for index in range(2):
+        swap = UniswapV2Swap(
+            17_000_000,
+            f"0x{index:064x}",
+            index,
+            index + 10,
+            pair.pair_address,
+            "0x" + "bb" * 20,
+            "0x" + "cc" * 20,
+            100 + index,
+            0,
+            0,
+            200 + index,
         )
-        for index in range(2)
+        swaps.append(
+            EnrichedUniswapV2Swap(
+                SwapReserveContext(swap, ReserveState(1_000, 2_000), ReserveState(1_100, 1_800)),
+                pair,
+                TokenMetadata(pair.token0_address or "", 18, "WETH"),
+                TokenMetadata(pair.token1_address or "", None, None),
+            )
+        )
+    analysis = BlockSwapAnalysis(
+        17_000_000,
+        tuple(swaps),
+        SwapDiagnostics(2, 1, 2, 2, 0, 0, 1),
     )
 
     with (
         patch("blockscope.cli.EthereumRPC.from_env", return_value=Mock()) as from_env,
-        patch("blockscope.cli.collect_block_swaps", return_value=swaps) as collect,
+        patch("blockscope.cli.analyze_block_swaps", return_value=analysis) as analyze,
     ):
         result = runner.invoke(app, ["swaps", "17000000", "--limit", "1"])
 
@@ -88,6 +115,10 @@ def test_swaps_command_displays_raw_events_and_obeys_limit() -> None:
     assert "token0 -> token1" in result.output
     assert "in0=100" in result.output
     assert "in0=101" not in result.output
-    assert "2 supported swap event(s)" in result.output
+    assert "reserves pre=(1000, 2000) post=(1100, 1800)" in result.output
+    assert "WETH" in result.output
+    assert "Valid Swap events: 2" in result.output
+    assert "Malformed matching Swap logs: 1" in result.output
+    assert "Metadata lookup failures: 1" in result.output
     assert "1 more event(s)" in result.output
-    collect.assert_called_once_with(from_env.return_value, 17_000_000)
+    analyze.assert_called_once_with(from_env.return_value, 17_000_000)

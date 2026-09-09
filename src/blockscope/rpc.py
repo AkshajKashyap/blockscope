@@ -68,3 +68,23 @@ class EthereumRPC:
             raise RPCError(
                 f"Could not fetch receipt for transaction {transaction_hash}: {exc}"
             ) from exc
+
+    def eth_call(self, contract_address: str, call_data: str, block_number: int) -> bytes:
+        """Execute a read-only contract call against historical block state."""
+        if block_number < 0:
+            raise ValueError("Block number must be non-negative")
+        try:
+            checksum_address = Web3.to_checksum_address(contract_address)
+            result = self._web3.eth.call(
+                {"to": checksum_address, "data": call_data},
+                block_identifier=block_number,
+            )
+            if isinstance(result, str):
+                return bytes.fromhex(result.removeprefix("0x"))
+            return bytes(result)
+        except BlockScopeError:
+            raise
+        except Exception as exc:
+            raise RPCError(
+                f"Could not call contract {contract_address} at block {block_number}: {exc}"
+            ) from exc
