@@ -96,6 +96,7 @@ def test_swaps_command_displays_raw_events_and_obeys_limit() -> None:
                 pair,
                 TokenMetadata(pair.token0_address or "", 18, "WETH"),
                 TokenMetadata(pair.token1_address or "", None, None),
+                "0x" + "ee" * 20,
             )
         )
     analysis = BlockSwapAnalysis(
@@ -122,3 +123,23 @@ def test_swaps_command_displays_raw_events_and_obeys_limit() -> None:
     assert "Metadata lookup failures: 1" in result.output
     assert "1 more event(s)" in result.output
     analyze.assert_called_once_with(from_env.return_value, 17_000_000)
+
+
+def test_sandwiches_command_reports_zero_candidates_without_overclaiming() -> None:
+    swap_analysis = BlockSwapAnalysis(
+        17_000_000,
+        (),
+        SwapDiagnostics(0, 0, 0, 0, 0, 0, 0),
+    )
+
+    with (
+        patch("blockscope.cli.EthereumRPC.from_env", return_value=Mock()),
+        patch("blockscope.cli.analyze_block_swaps", return_value=swap_analysis),
+    ):
+        result = runner.invoke(app, ["sandwiches", "17000000"])
+
+    assert result.exit_code == 0
+    assert "Strict Sandwich Candidates" in result.output
+    assert "0 strict sandwich candidate(s)" in result.output
+    assert "Potential front legs considered: 0" in result.output
+    assert "confirmed" not in result.output.lower()

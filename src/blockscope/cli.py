@@ -1,11 +1,14 @@
 """Command-line interface for BlockScope."""
 
 from datetime import UTC, datetime
+from decimal import Decimal, localcontext
+from fractions import Fraction
 from typing import Annotated
 
 import typer
 
 from blockscope.rpc import BlockScopeError, EthereumRPC
+from blockscope.sandwiches import SandwichCandidate, detect_strict_sandwich_candidates
 from blockscope.types import Transaction
 from blockscope.uniswap_v2 import (
     EnrichedUniswapV2Swap,
@@ -67,6 +70,40 @@ def _swap_lines(enriched: EnrichedUniswapV2Swap) -> tuple[str, ...]:
         f"  {reserves}",
         f"  factory={factory}  token0={_token_label(enriched.token0_metadata)}",
         f"  token1={_token_label(enriched.token1_metadata)}",
+    )
+
+
+def _fraction_decimal(value: Fraction) -> str:
+    with localcontext() as context:
+        context.prec = 18
+        return format(Decimal(value.numerator) / Decimal(value.denominator), ".12g")
+
+
+def _candidate_lines(index: int, candidate: SandwichCandidate) -> tuple[str, ...]:
+    victim_lines = tuple(
+        f"  Victim {victim_index}: tx #{victim.swap.transaction_index} "
+        f"sender={victim.transaction_sender} {victim.swap.direction}"
+        for victim_index, victim in enumerate(candidate.victims, start=1)
+    )
+    return (
+        f"Candidate {index}",
+        f"  Pair: {candidate.pair_address}",
+        f"  Outer transaction sender: {candidate.actor_address}",
+        f"  Front: tx #{candidate.front_run.swap.transaction_index} {candidate.direction}",
+        *victim_lines,
+        (
+            f"  Back: tx #{candidate.back_run.swap.transaction_index} "
+            f"{candidate.back_run.swap.direction}"
+        ),
+        "  Raw directional quote:",
+        f"    before front: {_fraction_decimal(candidate.quote_before_front)}",
+        f"    after front:  {_fraction_decimal(candidate.quote_after_front)}",
+        f"    before back:  {_fraction_decimal(candidate.quote_before_back)}",
+        f"    after back:   {_fraction_decimal(candidate.quote_after_back)}",
+        (
+            "  Evidence: continuous pair state; same outer transaction sender; "
+            "distinct victim sender(s); adverse front movement; reversing back movement"
+        ),
     )
 
 
@@ -143,6 +180,58 @@ def show_swaps(
         f"{diagnostics.invalid_reserve_reconstructions}"
     )
     typer.echo(f"Metadata lookup failures: {diagnostics.metadata_lookup_failures}")
+
+
+@app.command("sandwiches")
+def show_sandwiches(
+    number: Annotated[int, typer.Argument(min=0, help="Ethereum block number")],
+    limit: Annotated[
+        int,
+        typer.Option("--limit", "-l", min=0, help="Maximum candidates to display"),
+    ] = 20,
+) -> None:
+    """Display conservative strict sandwich candidates in a block."""
+    try:
+        swap_analysis = analyze_block_swaps(EthereumRPC.from_env(), number)
+        result = detect_strict_sandwich_candidates(swap_analysis.swaps)
+    except (BlockScopeError, ValueError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    typer.echo(f"Strict Sandwich Candidates — Ethereum Block {number}\n")
+    for index, candidate in enumerate(result.candidates[:limit], start=1):
+        for line in _candidate_lines(index, candidate):
+            typer.echo(line)
+        typer.echo()
+    remaining = len(result.candidates) - limit
+    if remaining > 0:
+        typer.echo(f"… {remaining} more candidate(s); use --limit to display more")
+    typer.echo(f"{len(result.candidates)} strict sandwich candidate(s)\n")
+
+    diagnostics = result.diagnostics
+    typer.echo("Detector diagnostics")
+    typer.echo(f"Continuous pair segments: {diagnostics.continuous_pair_segments}")
+    typer.echo(f"Potential front legs considered: {diagnostics.potential_front_legs_considered}")
+    typer.echo(f"Rejected — no victims: {diagnostics.rejected_no_victims}")
+    typer.echo(
+        "Rejected — no closing back-run: "
+        f"{diagnostics.rejected_no_closing_back_run}"
+    )
+    typer.echo(
+        "Rejected — invalid transaction-level leg sequence: "
+        f"{diagnostics.rejected_invalid_leg_sequence}"
+    )
+    typer.echo(
+        "Rejected — closing sender mismatch: "
+        f"{diagnostics.rejected_closing_sender_mismatch}"
+    )
+    typer.echo(f"Rejected — invalid raw quote: {diagnostics.rejected_invalid_quote}")
+    typer.echo(f"Rejected — front not adverse: {diagnostics.rejected_adverse_movement}")
+    typer.echo(
+        "Rejected — back did not improve quote: "
+        f"{diagnostics.rejected_back_run_reversal}"
+    )
+    typer.echo(f"Duplicate candidates suppressed: {diagnostics.duplicate_candidates_suppressed}")
 
 
 if __name__ == "__main__":

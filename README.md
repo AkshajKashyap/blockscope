@@ -2,7 +2,7 @@
 
 BlockScope is the foundation of a counterfactual Ethereum execution and MEV analysis engine.
 
-## Current status: Milestone 3
+## Current status: Milestone 4
 
 BlockScope currently fetches historical Ethereum blocks and transaction receipts over JSON-RPC,
 normalizes their transactions and logs into provider-independent typed models, and prints concise
@@ -10,10 +10,14 @@ block summaries. It recognizes canonical Uniswap V2-compatible Pair `Swap` and `
 shapes, conservatively associates their transaction-local evidence, and reconstructs raw reserve
 state immediately before and after supported swaps.
 
+BlockScope can also scan those exact reserve transitions for **strict sandwich candidates**. This
+is deliberately a high-precision, low-recall structural detector. Candidates are not confirmed
+attacks and do not establish intent, mempool visibility, beneficial ownership, or profitability.
+
 Matching the event signature identifies Uniswap V2-compatible events; it does not prove that a
 pair was deployed by the official Uniswap factory. BlockScope queries and displays the pair's
-actual `factory()` address without using it as a filter. MEV analysis, transaction tracing, profit
-calculation, and counterfactual replay are **not implemented yet**.
+actual `factory()` address without using it as a filter. Generalized MEV classification,
+transaction tracing, profit calculation, and counterfactual replay are **not implemented yet**.
 
 ## Setup
 
@@ -46,6 +50,13 @@ Decode supported Swap events from every transaction receipt in a block with:
 ```bash
 blockscope swaps 17000000
 blockscope swaps 17000000 --limit 50
+```
+
+Scan for strict sandwich candidates with:
+
+```bash
+blockscope sandwiches 17000000
+blockscope sandwiches 17000000 --limit 20
 ```
 
 The decoder supports exactly these canonical event shapes:
@@ -83,6 +94,38 @@ command. Metadata failures are reported but do not invalidate event-derived rese
 Amounts and reserves are always retained and displayed as raw integer token units. Symbols and
 decimals are display metadata only. Multiple Swap logs emitted by one transaction remain separate
 and retain `(transaction_index, log_index)` execution order.
+
+## Strict sandwich-candidate definition
+
+The detector first groups reconstructed swaps by pair and splits them whenever the previous
+post-reserves do not exactly equal the next pre-reserves. Inside each continuous segment it uses
+a deterministic first-opposite-close rule. A candidate requires:
+
+- A front transaction, one or more distinct victim transactions, and a distinct back transaction.
+- The front and back transaction `from` addresses to match after normalization.
+- Every victim transaction sender to differ from that outer sender.
+- Every victim to trade in the front direction on the same pair.
+- The first subsequent opposite-direction swap to be the back leg; the scanner never skips it to
+  search for a later matching sender.
+- Exact reserve continuity between every adjacent candidate leg.
+- A strictly adverse front movement and strictly reversing back movement in the original trade
+  direction's raw reserve quote.
+
+For token0 to token1, the raw quote is `reserve1 / reserve0`. For token1 to token0, it is
+`reserve0 / reserve1`. Quotes use exact rational arithmetic internally. They are not token-decimal
+normalized prices or USD values.
+
+The transaction sender is only a conservative on-chain actor proxy. Equal senders do not prove
+common real-world beneficial ownership, and different senders do not prove different ownership.
+Multiple logs from one transaction are never treated as distinct transaction-level candidate
+legs. Address clustering and internal-call attribution are not implemented.
+
+Every swap in each continuous segment is considered once as a possible front leg. Results are
+deduplicated by the complete ordered sequence of `(transaction_index, log_index)` legs and then
+sorted by front-leg execution order. The scanner does not search combinatorial subsets of victims.
+
+Strict candidates are evidence-bearing historical patterns, **not confirmed sandwich attacks**.
+BlockScope does not yet calculate attacker profit, victim loss, or counterfactual victim output.
 
 ## Development
 

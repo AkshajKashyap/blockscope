@@ -187,5 +187,6 @@ def test_pair_metadata_failures_do_not_destroy_reserve_analysis() -> None:
     assert len(analysis.swaps) == 1
     assert analysis.swaps[0].reserve_context.pre_reserves is not None
     assert analysis.swaps[0].pair_metadata.token0_address is None
+    assert analysis.swaps[0].transaction_sender == "0x" + "11" * 20
     assert analysis.diagnostics.swaps_with_reconstructed_reserves == 1
     assert analysis.diagnostics.metadata_lookup_failures == 3

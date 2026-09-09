@@ -129,6 +129,7 @@ class EnrichedUniswapV2Swap:
     pair_metadata: UniswapV2PairMetadata
     token0_metadata: TokenMetadata | None
     token1_metadata: TokenMetadata | None
+    transaction_sender: str | None
 
     @property
     def swap(self) -> UniswapV2Swap:
@@ -352,8 +353,18 @@ def decode_receipt_swaps(receipt: TransactionReceipt) -> tuple[UniswapV2Swap, ..
 def _scan_block(
     rpc: EthereumRPC,
     block_number: int,
-) -> tuple[tuple[SwapReserveContext, ...], int, int, int]:
+) -> tuple[
+    tuple[SwapReserveContext, ...],
+    dict[tuple[int, str], str],
+    int,
+    int,
+    int,
+]:
     block = rpc.get_block(block_number)
+    transaction_senders = {
+        (transaction.transaction_index, transaction.hash.lower()): transaction.from_address.lower()
+        for transaction in block.transactions
+    }
     contexts: list[SwapReserveContext] = []
     malformed_swap_logs = 0
     malformed_sync_logs = 0
@@ -368,6 +379,7 @@ def _scan_block(
     contexts.sort(key=lambda context: (context.swap.transaction_index, context.swap.log_index))
     return (
         tuple(contexts),
+        transaction_senders,
         malformed_swap_logs,
         malformed_sync_logs,
         invalid_reconstructions,
@@ -376,7 +388,7 @@ def _scan_block(
 
 def collect_block_swaps(rpc: EthereumRPC, block_number: int) -> tuple[UniswapV2Swap, ...]:
     """Fetch each receipt once and return all valid Swap events without metadata calls."""
-    contexts, _, _, _ = _scan_block(rpc, block_number)
+    contexts, _, _, _, _ = _scan_block(rpc, block_number)
     return tuple(context.swap for context in contexts)
 
 
@@ -478,16 +490,29 @@ class MetadataResolver:
 
 def analyze_block_swaps(rpc: EthereumRPC, block_number: int) -> BlockSwapAnalysis:
     """Scan, reconstruct, and enrich all V2-compatible Swap evidence in a block."""
-    contexts, malformed_swaps, malformed_syncs, invalid_reconstructions = _scan_block(
-        rpc, block_number
-    )
+    (
+        contexts,
+        transaction_senders,
+        malformed_swaps,
+        malformed_syncs,
+        invalid_reconstructions,
+    ) = _scan_block(rpc, block_number)
     resolver = MetadataResolver(rpc, block_number)
     enriched: list[EnrichedUniswapV2Swap] = []
     for context in contexts:
         pair = resolver.pair(context.swap.pair_address)
         token0 = resolver.token(pair.token0_address) if pair.token0_address else None
         token1 = resolver.token(pair.token1_address) if pair.token1_address else None
-        enriched.append(EnrichedUniswapV2Swap(context, pair, token0, token1))
+        identity = (context.swap.transaction_index, context.swap.transaction_hash.lower())
+        enriched.append(
+            EnrichedUniswapV2Swap(
+                context,
+                pair,
+                token0,
+                token1,
+                transaction_senders.get(identity),
+            )
+        )
 
     reconstructed = sum(context.pre_reserves is not None for context in contexts)
     diagnostics = SwapDiagnostics(
