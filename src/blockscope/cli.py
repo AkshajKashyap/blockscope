@@ -17,6 +17,10 @@ from blockscope.economics import (
     ObservedSandwichEconomics,
     analyze_observed_sandwich_economics,
 )
+from blockscope.evm_counterfactual import (
+    CounterfactualEVMExecution,
+    execute_front_omission_counterfactual,
+)
 from blockscope.replay import (
     ObservedReplayReport,
     PairSwapEvidence,
@@ -433,6 +437,134 @@ def _observed_replay_lines(report: ObservedReplayReport) -> tuple[str, ...]:
     return tuple(lines)
 
 
+def _evm_counterfactual_lines(result: CounterfactualEVMExecution) -> tuple[str, ...]:
+    plan = result.plan
+    isolation = result.isolation
+    receipt = result.receipt_difference
+    pair = result.pair_difference
+    observed_target = result.observed.target.replay_receipt
+    counterfactual_target = result.counterfactual_branch.target.replay_receipt
+    observed_status = None if observed_target is None else observed_target.status
+    counterfactual_status = (
+        None if counterfactual_target is None else counterfactual_target.status
+    )
+    observed_indexes = ", ".join(
+        f"#{transaction.transaction_index}" for transaction in plan.observed.transactions
+    )
+    counterfactual_indexes = ", ".join(
+        f"#{transaction.transaction_index}" for transaction in plan.counterfactual.transactions
+    )
+    lines = [
+        "Forked-EVM Front-Omission Counterfactual",
+        f"  Block: {plan.observed.block_number}",
+        f"  Fork base: {plan.observed.fork_block_number}",
+        f"  Front transaction omitted: #{plan.omitted_transaction_index}",
+        f"  Target victim: #{plan.observed.target_transaction_index}",
+        f"  Observed branch executes: {observed_indexes}",
+        (
+            f"  Counterfactual branch executes unchanged: {counterfactual_indexes}; "
+            f"omits #{plan.omitted_transaction_index}"
+        ),
+        f"  Experiment reliable: {'yes' if result.reliable else 'no'}",
+        "Observed baseline",
+        (
+            "  Complete prefix receipt semantics exact: "
+            f"{'yes' if result.observed.prefix_receipt_evidence_exact else 'no'}"
+        ),
+        (
+            "  Target pair execution exact: "
+            f"{'yes' if result.observed.pair_execution_exact_match else 'no'}"
+        ),
+    ]
+    for transaction_result in result.observed.transactions:
+        comparison = transaction_result.comparison
+        lines.append(
+            f"  Tx #{transaction_result.historical_transaction.transaction_index}: "
+            f"receipt semantics="
+            f"{comparison.semantic_logs.value if comparison is not None else 'UNAVAILABLE'}; "
+            f"V2 pair execution="
+            f"{'exact' if comparison is not None and comparison.pair_execution_exact_match else 'not exact'}; "
+            f"gas={comparison.gas_used.value if comparison is not None else 'UNAVAILABLE'}"
+        )
+    lines.extend(
+        (
+        "Target execution",
+        f"  Observed status: {_receipt_status(observed_status)}",
+        f"  Counterfactual status: {_receipt_status(counterfactual_status)}",
+        f"  Target request unchanged: {'yes' if isolation.same_target_request else 'no'}",
+        f"  Counterfactual candidate-pair Swap present: {'yes' if pair.counterfactual_swap_present else 'no'}",
+        f"  Pair direction comparison: {pair.direction.value}",
+        f"  Pair input unchanged: {pair.pair_input_unchanged.value}",
+        f"  Observed pair input: {pair.observed_pair_input}",
+        f"  Counterfactual pair input: {pair.counterfactual_pair_input}",
+        f"  Observed pair output: {pair.observed_pair_output}",
+        f"  Counterfactual pair output: {pair.counterfactual_pair_output}",
+        f"  EVM counterfactual pair-output delta: {pair.evm_pair_output_delta}",
+        f"  Observed post-Sync reserves: {pair.observed_post_reserves}",
+        f"  Counterfactual post-Sync reserves: {pair.counterfactual_post_reserves}",
+        "Receipt and gas difference",
+        f"  Status changed: {receipt.status_changed}",
+        (
+            f"  Gas used: observed={receipt.observed_gas_used} "
+            f"counterfactual={receipt.counterfactual_gas_used} "
+            f"delta={receipt.gas_used_delta} (counterfactual - observed)"
+        ),
+        (
+            f"  Effective gas price: observed={receipt.observed_effective_gas_price} "
+            f"counterfactual={receipt.counterfactual_effective_gas_price} "
+            f"delta={receipt.effective_gas_price_delta}"
+        ),
+        (
+            f"  Receipt logs: observed={receipt.observed_log_count} "
+            f"counterfactual={receipt.counterfactual_log_count} "
+            f"delta={receipt.log_count_delta} content={receipt.log_content.value}"
+        ),
+        "Mathematical V2 cross-check",
+        f"  Milestone 6 output: {pair.mathematical_counterfactual_output}",
+        f"  Model vs EVM: {pair.model_vs_evm.value}",
+        f"  EVM minus mathematical output: {pair.model_vs_evm_output_delta}",
+        "Experimental isolation",
+        f"  Upstream RPC fingerprint: {isolation.upstream_rpc_fingerprint}",
+        (
+            f"  Independent fresh forks: {'yes' if isolation.independent_forks else 'no'} "
+            f"(instances {isolation.observed_fork_instance_id}, "
+            f"{isolation.counterfactual_fork_instance_id})"
+        ),
+        (
+            f"  Backend PIDs: observed={isolation.observed_process_id} "
+            f"counterfactual={isolation.counterfactual_process_id}"
+        ),
+        f"  Same fork block: {'yes' if isolation.same_fork_block else 'no'}",
+        f"  Same Anvil version: {'yes' if isolation.same_anvil_version else 'no'}",
+        f"  Same hardfork: {'yes' if isolation.same_hardfork else 'no'}",
+        f"  Same requested block context: {'yes' if isolation.same_requested_block_context else 'no'}",
+        (
+            "  Equivalent controllable local environment: "
+            f"{'yes' if isolation.controllable_local_environment_equal else 'no'}"
+        ),
+        (
+            "  Uncontrolled local differences: "
+            f"{', '.join(isolation.uncontrolled_local_differences) or 'none'}"
+        ),
+        (
+            "  Same non-omitted prefix requests: "
+            f"{'yes' if isolation.same_non_omitted_prefix_requests else 'no'}"
+        ),
+        f"  Omitted transaction absent: {'yes' if isolation.omitted_transaction_absent else 'no'}",
+        f"  Intentional difference: {isolation.intentional_difference}",
+        )
+    )
+    lines.extend(f"  Limitation: {limitation}" for limitation in result.limitations)
+    lines.extend(
+        (
+            "Interpretation: the same victim request ran against two independently forked histories.",
+            "The only intended pre-target difference was omission of the complete front transaction.",
+            "Pair-output differences are execution consequences, not wallet loss or proof of intent.",
+        )
+    )
+    return tuple(lines)
+
+
 @app.command("block")
 def show_block(
     number: Annotated[int, typer.Argument(min=0, help="Ethereum block number")],
@@ -551,22 +683,50 @@ def show_sandwiches(
             help="Show canonical fixed-input pair-level victim replay",
         ),
     ] = False,
+    evm_counterfactual: Annotated[
+        bool,
+        typer.Option(
+            "--evm-counterfactual",
+            help="Execute unchanged victims on independent observed/front-omitted Anvil forks",
+        ),
+    ] = False,
 ) -> None:
     """Display conservative strict sandwich candidates in a block."""
     try:
-        rpc = EthereumRPC.from_env()
+        if evm_counterfactual:
+            upstream_url = rpc_url_from_env()
+            rpc = EthereumRPC(upstream_url)
+        else:
+            upstream_url = None
+            rpc = EthereumRPC.from_env()
         swap_analysis = analyze_block_swaps(rpc, number)
         result = detect_strict_sandwich_candidates(swap_analysis.swaps)
         economics_analysis = (
             analyze_observed_sandwich_economics(result.candidates, swap_analysis.receipts)
-            if economics or counterfactual
+            if economics or counterfactual or evm_counterfactual
             else None
         )
         counterfactual_analysis = (
             analyze_fixed_input_counterfactuals(rpc, number, result.candidates)
-            if counterfactual
+            if counterfactual or evm_counterfactual
             else None
         )
+        if evm_counterfactual:
+            assert upstream_url is not None
+            block = rpc.get_block(number)
+            evm_results = tuple(
+                execute_front_omission_counterfactual(
+                    rpc,
+                    upstream_url,
+                    block,
+                    swap_analysis.receipts,
+                    candidate,
+                    counterfactual_analysis.candidates[index],
+                )
+                for index, candidate in enumerate(result.candidates[:limit])
+            )
+        else:
+            evm_results = ()
     except (BlockScopeError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -578,8 +738,11 @@ def show_sandwiches(
         if economics_analysis is not None:
             for line in _economics_lines(economics_analysis.candidates[index - 1]):
                 typer.echo(line)
-        if counterfactual_analysis is not None:
+        if counterfactual and counterfactual_analysis is not None:
             for line in _counterfactual_lines(counterfactual_analysis.candidates[index - 1]):
+                typer.echo(line)
+        if evm_counterfactual:
+            for line in _evm_counterfactual_lines(evm_results[index - 1]):
                 typer.echo(line)
         typer.echo()
     remaining = len(result.candidates) - limit
@@ -656,6 +819,12 @@ def show_sandwiches(
             "Observed-model mismatches: "
             f"{counterfactual_diagnostics.observed_model_mismatches}"
         )
+    if evm_counterfactual:
+        reliable_count = sum(item.reliable for item in evm_results)
+        typer.echo("\nForked-EVM counterfactual diagnostics")
+        typer.echo(f"Experiments executed: {len(evm_results)}")
+        typer.echo(f"Reliable experiments: {reliable_count}")
+        typer.echo(f"Unreliable experiments: {len(evm_results) - reliable_count}")
 
 
 if __name__ == "__main__":

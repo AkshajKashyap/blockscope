@@ -7,6 +7,7 @@ import socket
 import subprocess
 import tempfile
 import time
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -234,7 +235,8 @@ class PairSwapEvidence:
         )
 
 
-def _semantic_logs(receipt: TransactionReceipt) -> tuple[SemanticLog, ...]:
+def semantic_receipt_logs(receipt: TransactionReceipt) -> tuple[SemanticLog, ...]:
+    """Return ordered log content without transaction/block bookkeeping fields."""
     return tuple(
         SemanticLog(
             log.address.lower(),
@@ -245,7 +247,8 @@ def _semantic_logs(receipt: TransactionReceipt) -> tuple[SemanticLog, ...]:
     )
 
 
-def _pair_swap_evidence(receipt: TransactionReceipt) -> tuple[PairSwapEvidence, ...]:
+def pair_swap_evidence(receipt: TransactionReceipt) -> tuple[PairSwapEvidence, ...]:
+    """Return ordered supported V2 Pair outcomes decoded from one receipt."""
     return tuple(
         PairSwapEvidence(
             pair_address=context.swap.pair_address.lower(),
@@ -282,9 +285,9 @@ def compare_replay_receipts(
 ) -> ReplayComparison:
     """Compare normalized execution evidence, intentionally ignoring hashes/indexes."""
     status_match = historical.status is not None and historical.status == replay.status
-    logs_match = _semantic_logs(historical) == _semantic_logs(replay)
-    historical_pairs = _pair_swap_evidence(historical)
-    replay_pairs = _pair_swap_evidence(replay)
+    logs_match = semantic_receipt_logs(historical) == semantic_receipt_logs(replay)
+    historical_pairs = pair_swap_evidence(historical)
+    replay_pairs = pair_swap_evidence(replay)
     historical_swap_identities = tuple(item.swap_identity for item in historical_pairs)
     replay_swap_identities = tuple(item.swap_identity for item in replay_pairs)
     pair_swaps_match = bool(historical_pairs) and (
@@ -565,6 +568,11 @@ class AnvilFork:
         self._stderr: TextIO | None = None
         self._rpc: JsonRpcClient | None = None
 
+    @property
+    def process_id(self) -> int | None:
+        """Return the running backend PID as branch-isolation evidence."""
+        return None if self._process is None else self._process.pid
+
     @classmethod
     def require_available(cls, executable: str = "anvil") -> tuple[str, str]:
         """Resolve Anvil and return its path/version, or an actionable error."""
@@ -786,49 +794,66 @@ def _not_attempted_result(
     )
 
 
-def replay_observed_transaction(
-    upstream_rpc: EthereumRPC,
+@dataclass(frozen=True, slots=True)
+class ReplayBranchExecution:
+    """One independently forked execution of a supplied prefix/target plan."""
+
+    plan: ReplayPlan
+    fork_instance_id: str
+    backend_version: str
+    backend_process_id: int | None
+    configured_hardfork: str
+    environment: ReplayEnvironmentEvidence
+    transactions: tuple[TransactionReplayResult, ...]
+
+    @property
+    def prefix(self) -> tuple[TransactionReplayResult, ...]:
+        return self.transactions[:-1]
+
+    @property
+    def target(self) -> TransactionReplayResult:
+        return self.transactions[-1]
+
+
+def execute_replay_plan(
     upstream_rpc_url: str,
-    block_number: int,
-    target_transaction_index: int,
+    plan: ReplayPlan,
+    historical_receipts: tuple[TransactionReceipt, ...],
+    historical_context: ReplayBlockContext,
+    hardfork: str,
     *,
     anvil_executable: str = "anvil",
-) -> ObservedReplayReport:
-    """Replay a complete block prefix and target together from historical N-1 state."""
-    executable_path, version = AnvilFork.require_available(anvil_executable)
-    block = upstream_rpc.get_block(block_number)
-    plan = plan_observed_replay(block, target_transaction_index)
+) -> ReplayBranchExecution:
+    """Execute a plan on one new Anvil fork without nonce, balance, or state mutation."""
+    if len(historical_receipts) != len(plan.transactions):
+        raise ReplayInputError("historical receipts do not align with the replay plan")
+    chain_id = historical_context.chain_id
     requests = tuple(transaction_replay_request(transaction) for transaction in plan.transactions)
-    historical_receipts = tuple(
-        upstream_rpc.get_transaction_receipt(transaction.hash)
-        for transaction in plan.transactions
-    )
-    chain_id = upstream_rpc.get_chain_id()
-    if chain_id != 1:
-        raise ReplayInputError(
-            f"observed Ethereum replay requires mainnet chain ID 1; connected chain ID is {chain_id}"
-        )
     for request in requests:
         if request.chain_id is not None and request.chain_id != chain_id:
             raise ReplayInputError(
-                f"transaction chain ID {request.chain_id} does not match upstream chain ID {chain_id}"
+                f"transaction chain ID {request.chain_id} does not match upstream chain ID "
+                f"{chain_id}"
             )
-    hardfork = infer_ethereum_hardfork(block)
-    historical_context = ReplayBlockContext.from_block(block, chain_id)
+
     local_hashes: list[str] = []
     submission_error: tuple[int, str] | None = None
     setup_warnings: list[str] = []
     replay_receipts: dict[int, TransactionReceipt] = {}
     local_context: ReplayBlockContext | None = None
+    backend_process_id: int | None = None
+    backend_version = "unknown"
+    fork_instance_id = uuid.uuid4().hex
 
     with AnvilFork(
         upstream_rpc_url,
         plan.fork_block_number,
         chain_id,
-        executable=executable_path,
+        executable=anvil_executable,
         hardfork=hardfork,
     ) as fork:
-        version = fork.backend_version
+        backend_version = fork.backend_version
+        backend_process_id = fork.process_id
         setup_warnings.extend(fork.configure_next_block(historical_context))
         for position, request in enumerate(requests):
             try:
@@ -846,7 +871,7 @@ def replay_observed_transaction(
                 except (ReplayError, ValueError, TypeError) as exc:
                     setup_warnings.append(str(exc))
             try:
-                local_block = fork.get_block(block_number)
+                local_block = fork.get_block(plan.block_number)
                 local_context = ReplayBlockContext.from_block(local_block, fork.get_chain_id())
             except (ReplayError, ValueError, TypeError) as exc:
                 setup_warnings.append(str(exc))
@@ -896,15 +921,56 @@ def replay_observed_transaction(
             )
         )
 
-    environment = compare_replay_environment(
+    return ReplayBranchExecution(
+        plan=plan,
+        fork_instance_id=fork_instance_id,
+        backend_version=backend_version,
+        backend_process_id=backend_process_id,
+        configured_hardfork=hardfork,
+        environment=compare_replay_environment(
+            historical_context,
+            local_context,
+            tuple(setup_warnings),
+        ),
+        transactions=tuple(results),
+    )
+
+
+def replay_observed_transaction(
+    upstream_rpc: EthereumRPC,
+    upstream_rpc_url: str,
+    block_number: int,
+    target_transaction_index: int,
+    *,
+    anvil_executable: str = "anvil",
+) -> ObservedReplayReport:
+    """Replay a complete block prefix and target together from historical N-1 state."""
+    executable_path, _ = AnvilFork.require_available(anvil_executable)
+    block = upstream_rpc.get_block(block_number)
+    plan = plan_observed_replay(block, target_transaction_index)
+    historical_receipts = tuple(
+        upstream_rpc.get_transaction_receipt(transaction.hash)
+        for transaction in plan.transactions
+    )
+    chain_id = upstream_rpc.get_chain_id()
+    if chain_id != 1:
+        raise ReplayInputError(
+            f"observed Ethereum replay requires mainnet chain ID 1; connected chain ID is {chain_id}"
+        )
+    hardfork = infer_ethereum_hardfork(block)
+    historical_context = ReplayBlockContext.from_block(block, chain_id)
+    branch = execute_replay_plan(
+        upstream_rpc_url,
+        plan,
+        historical_receipts,
         historical_context,
-        local_context,
-        tuple(setup_warnings),
+        hardfork,
+        anvil_executable=executable_path,
     )
     return assemble_observed_replay_report(
         plan,
-        version,
+        branch.backend_version,
         hardfork,
-        environment,
-        tuple(results),
+        branch.environment,
+        branch.transactions,
     )

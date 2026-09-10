@@ -191,3 +191,36 @@ def test_replay_command_reports_missing_anvil_actionably() -> None:
     assert result.exit_code == 1
     assert "Anvil executable was not found" in result.output
     assert "anvil --version" in result.output
+
+
+def test_sandwiches_evm_counterfactual_flag_is_integrated_without_live_backend() -> None:
+    swap_analysis = BlockSwapAnalysis(
+        17_000_000,
+        (),
+        SwapDiagnostics(0, 0, 0, 0, 0, 0, 0),
+    )
+    counterfactual_analysis = CounterfactualAnalysis(
+        (),
+        CounterfactualDiagnostics(0, 0, 0, 0, 0, 0),
+    )
+    rpc = Mock()
+
+    with (
+        patch.dict("os.environ", {"ETH_RPC_URL": "https://rpc.example"}, clear=True),
+        patch("blockscope.cli.EthereumRPC", return_value=rpc),
+        patch("blockscope.cli.analyze_block_swaps", return_value=swap_analysis),
+        patch(
+            "blockscope.cli.analyze_fixed_input_counterfactuals",
+            return_value=counterfactual_analysis,
+        ),
+        patch("blockscope.cli.execute_front_omission_counterfactual") as execute,
+    ):
+        result = runner.invoke(
+            app,
+            ["sandwiches", "17000000", "--evm-counterfactual"],
+        )
+
+    assert result.exit_code == 0
+    assert "Forked-EVM counterfactual diagnostics" in result.output
+    assert "Experiments executed: 0" in result.output
+    execute.assert_not_called()

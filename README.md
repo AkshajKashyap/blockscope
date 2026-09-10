@@ -2,7 +2,7 @@
 
 BlockScope is the foundation of a counterfactual Ethereum execution and MEV analysis engine.
 
-## Current status: Milestone 7
+## Current status: Milestone 8
 
 BlockScope currently fetches historical Ethereum blocks and transaction receipts over JSON-RPC,
 normalizes their transactions and logs into provider-independent typed models, and prints concise
@@ -25,8 +25,9 @@ canonical V2 integer formula. This is an AMM calculation, not arbitrary transact
 
 BlockScope also has an **observed EVM replay baseline** backed by an external Anvil process. It
 replays an unchanged target transaction and the complete preceding block prefix from historical
-state, then compares normalized receipt and pair evidence. This precedes any forked-EVM
-counterfactual because altered history is meaningful only after observed execution can be checked.
+state, then compares normalized receipt and pair evidence. Its **front-omitted forked-EVM
+counterfactual** runs the observed branch and an otherwise identical branch without the detected
+front transaction in two independent fresh forks, while leaving the victim request unchanged.
 
 Matching the event signature identifies Uniswap V2-compatible events; it does not prove that a
 pair was deployed by the official Uniswap factory. BlockScope queries and displays the pair's
@@ -81,6 +82,7 @@ blockscope sandwiches 17000000
 blockscope sandwiches 17000000 --limit 20
 blockscope sandwiches 17000000 --economics
 blockscope sandwiches 17000000 --counterfactual
+blockscope sandwiches 17000000 --evm-counterfactual
 blockscope replay 17000000 1
 ```
 
@@ -287,10 +289,42 @@ The three replay concepts are intentionally distinct:
 
 - Mathematical V2 replay applies the canonical integer AMM formula to fixed pair-level inputs.
 - Observed EVM replay executes the unchanged historical prefix and target in Anvil.
-- Future counterfactual EVM replay will alter history only after this observed baseline is proven.
+- Front-omitted EVM replay executes the unchanged target after removing one historical transaction.
 
 Milestone 7 does not skip the front transaction, replay the back leg, alter calldata or state,
 calculate counterfactual wallet output, or claim support for arbitrary historical transactions.
+
+## Front-omitted forked-EVM counterfactual
+
+`blockscope sandwiches N --evm-counterfactual` evaluates each displayed strict candidate at its
+last victim transaction `V`. It starts two separate Anvil processes from block `N - 1`. The
+observed branch submits transactions `#0..#(V-1)` followed by `#V`. The counterfactual branch
+submits the same ordered prefix except for the candidate's complete front transaction `F`, then
+submits the exact same target request `#V`. For multiple victims, the earlier victims remain in
+the prefix; only `F` is omitted. The back transaction is not replayed.
+
+Both branches use fresh forks, the same upstream state, inferred hardfork, requested header
+context, historical requests, and one explicit mine. Their fork instance identifiers and backend
+process identifiers are retained as isolation evidence. BlockScope does not edit the target's
+sender, recipient, nonce, value, calldata, gas limit, transaction type, access list, or fee fields.
+It also does not repair a nonce, fund an account, mutate storage, or otherwise force execution.
+A counterfactual revert or missing Pair Swap is a valid experimental outcome and is reported
+explicitly.
+
+The comparison includes target status, gas used, effective gas price, normalized receipt logs,
+whether the candidate Pair Swap occurred, direction, exact pair input/output, post-Swap reserves,
+and signed counterfactual-minus-observed output delta when both outputs exist. The fixed-input M6
+formula result is shown beside the EVM result as a model comparison; equality is evidence for that
+narrow model, not an assumption.
+
+Reliability requires an exact observed replay, independently created branches, equivalent
+controllable configuration and prefix requests, an unchanged target request, confirmed omission
+of only `F`, and complete counterfactual submission/mining evidence. Anvil does not expose every
+historical block-field control on every version: in particular, prevrandao and difficulty can
+remain unequal or uncontrollable. Those differences and all failed controls are printed and kept
+out of an “equivalent” claim. Even a reliable transaction-level result is not proof of user intent,
+wallet receipts, transaction-wide profit or loss, mempool visibility, or causal attribution beyond
+this specific front-omission intervention.
 
 ## Development
 
