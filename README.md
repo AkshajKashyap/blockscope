@@ -2,7 +2,7 @@
 
 BlockScope is the foundation of a counterfactual Ethereum execution and MEV analysis engine.
 
-## Current status: Milestone 9
+## Current status: Milestone 10
 
 BlockScope currently fetches historical Ethereum blocks and transaction receipts over JSON-RPC,
 normalizes their transactions and logs into provider-independent typed models, and prints concise
@@ -36,6 +36,47 @@ pair was deployed by the official Uniswap factory. BlockScope queries and displa
 actual `factory()` address without using it as a detector filter. Generalized MEV classification,
 transaction tracing, wallet-level profit calculation, and arbitrary historical EVM replay are
 **not implemented**.
+
+## Architecture
+
+BlockScope keeps normalized Ethereum evidence, protocol semantics, MEV analysis, fork execution,
+and presentation as separate concerns. The current pipeline is:
+
+```text
+Ethereum RPC
+     ↓
+normalized blocks, transactions, receipts, and logs
+     ↓
+Uniswap V2 decoding, metadata, and reserve reconstruction
+     ↓
+strict sandwich detection
+     ↓
+observed pair economics
+     ↓
+canonical fixed-input mathematical counterfactual
+     ↓
+Anvil observed replay
+     ↓
+independent front-omitted EVM counterfactual
+     ↓
+observed full-cycle address attribution
+```
+
+`types.py` and `rpc.py` own provider-independent Ethereum evidence and upstream access.
+`uniswap_v2.py` and `erc20.py` own the narrow protocol/event semantics currently supported.
+`sandwiches.py`, `economics.py`, `counterfactual.py`, `evm_counterfactual.py`, and
+`observed_attribution.py` own their specific analyses. `replay.py` owns the reusable Anvil branch
+primitive and explicit receipt/environment evidence. `sandwich_workflow.py` aligns optional
+candidate analyses for the CLI without placing analytical policy in presentation code.
+
+Three evidence categories remain explicit:
+
+- Historical evidence is normalized directly from upstream blocks, transactions, receipts, logs,
+  and historical calls.
+- Derived mathematical evidence uses exact integer/Fraction calculations over historical inputs;
+  it does not execute calldata.
+- Forked-EVM experimental evidence comes from unchanged or deliberately altered transaction plans
+  executed on fresh Anvil forks, with environment and reliability limitations retained.
 
 ## Setup
 
@@ -382,3 +423,16 @@ Run the offline test suite and linter with:
 pytest
 ruff check .
 ```
+
+The block `17000000` golden fixture is opt-in because it requires an archive RPC endpoint and
+Anvil. It is never part of normal offline `pytest`:
+
+```bash
+export PATH="$HOME/.foundry/bin:$PATH"
+export ETH_RPC_URL=https://your-provider.example
+.venv/bin/python scripts/verify_golden_fixture.py
+```
+
+The verifier checks candidate detection, observed reproduction, mathematical and EVM
+counterfactual agreement, and observed full-cycle attribution without placing fixture constants
+in production analysis code.

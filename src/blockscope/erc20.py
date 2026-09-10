@@ -1,8 +1,8 @@
 """Focused decoding and local-state reads for standard ERC-20 balance evidence."""
 
 from dataclasses import dataclass
+from typing import Protocol
 
-from blockscope.replay import AnvilFork, ReplayRPCError
 from blockscope.types import Log
 
 TRANSFER_EVENT_TOPIC = (
@@ -13,6 +13,21 @@ BALANCE_OF_SELECTOR = "0x70a08231"
 
 class TransferDecodeError(ValueError):
     """Raised when a log claims to be a Transfer event but is malformed."""
+
+
+class ERC20BalanceReadError(ValueError):
+    """Raised when balanceOf input or output is not valid ABI evidence."""
+
+
+class ContractStateReader(Protocol):
+    """Narrow read-only capability required for an ERC-20 balance call."""
+
+    def call_contract(
+        self,
+        contract_address: str,
+        call_data: str,
+        block_tag: str = "latest",
+    ) -> bytes: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,22 +83,29 @@ def decode_transfer_log(log: Log) -> ERC20Transfer | None:
     )
 
 
-def balance_of(fork: AnvilFork, token_address: str, account: str, block_tag: str) -> int:
+def balance_of(
+    reader: ContractStateReader,
+    token_address: str,
+    account: str,
+    block_tag: str,
+) -> int:
     """Read one exact ERC-20 balance from local fork state."""
     normalized = account.removeprefix("0x")
     try:
         encoded_account = bytes.fromhex(normalized)
     except ValueError as exc:
-        raise ReplayRPCError(f"invalid balanceOf account address: {account}") from exc
+        raise ERC20BalanceReadError(
+            f"invalid balanceOf account address: {account}"
+        ) from exc
     if len(encoded_account) != 20:
-        raise ReplayRPCError(f"invalid balanceOf account address: {account}")
-    result = fork.call_contract(
+        raise ERC20BalanceReadError(f"invalid balanceOf account address: {account}")
+    result = reader.call_contract(
         token_address,
         BALANCE_OF_SELECTOR + encoded_account.hex().rjust(64, "0"),
         block_tag,
     )
     if len(result) != 32:
-        raise ReplayRPCError(
+        raise ERC20BalanceReadError(
             f"ERC-20 balanceOf returned {len(result)} bytes instead of 32"
         )
     return int.from_bytes(result)

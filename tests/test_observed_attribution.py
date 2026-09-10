@@ -9,6 +9,7 @@ from blockscope.observed_attribution import (
     _CheckpointRecorder,
     calculate_balance_delta,
     execute_observed_cycle_attribution,
+    observed_cycle_attribution_reliable,
     tracked_addresses_for_candidate,
 )
 from blockscope.replay import (
@@ -217,6 +218,18 @@ def test_checkpoint_remains_partially_usable_when_one_token_call_fails() -> None
     assert value.token0_balance == 100
     assert value.token1_balance is None
     assert value.errors == ("token1 balance: token call reverted",)
+
+
+def test_pending_mined_state_mismatch_prevents_reliable_attribution() -> None:
+    assert not observed_cycle_attribution_reliable(
+        front_exact=True,
+        victims_exact=True,
+        back_exact=True,
+        complete_replay_exact=True,
+        checkpoint_reads_complete=True,
+        pending_final_consistent=False,
+        candidate_tokens_known=True,
+    )
 
 
 def test_tracked_addresses_deduplicate_shared_outer_recipient() -> None:

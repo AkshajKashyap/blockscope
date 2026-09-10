@@ -4,23 +4,36 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from blockscope.economics import ObservedSandwichEconomics, transaction_gas_fee_wei
-from blockscope.erc20 import ERC20Transfer, TransferDecodeError, balance_of, decode_transfer_log
+from blockscope.erc20 import (
+    ERC20BalanceReadError,
+    ERC20Transfer,
+    TransferDecodeError,
+    balance_of,
+    decode_transfer_log,
+)
 from blockscope.replay import (
     AnvilFork,
-    ComparisonState,
-    ReplayBlockContext,
     ReplayBranchExecution,
     ReplayError,
     ReplayInputError,
-    ReplaySubmissionStatus,
     TransactionReplayResult,
     execute_replay_plan,
-    infer_ethereum_hardfork,
     plan_observed_replay,
+    prepare_replay_environment,
+    replay_gas_exact,
+    replay_pair_execution_exact,
+    replay_receipt_available,
+    replay_receipt_semantics_exact,
 )
 from blockscope.rpc import EthereumRPC
 from blockscope.sandwiches import SandwichCandidate
-from blockscope.types import Block, Transaction, TransactionReceipt
+from blockscope.types import (
+    Block,
+    Transaction,
+    TransactionReceipt,
+    index_transaction_receipts,
+    transaction_identity,
+)
 from blockscope.uniswap_v2 import TokenMetadata
 
 
@@ -233,14 +246,14 @@ class _CheckpointRecorder:
                     token0_balance = balance_of(
                         fork, self.token0_address, tracked.address, block_tag
                     )
-                except ReplayError as exc:
+                except (ReplayError, ERC20BalanceReadError) as exc:
                     errors.append(f"token0 balance: {exc}")
             if self.token1_address is not None:
                 try:
                     token1_balance = balance_of(
                         fork, self.token1_address, tracked.address, block_tag
                     )
-                except ReplayError as exc:
+                except (ReplayError, ERC20BalanceReadError) as exc:
                     errors.append(f"token1 balance: {exc}")
             values.append(
                 AddressCheckpoint(
@@ -293,13 +306,12 @@ def _historical_receipts_for_plan(
     plan_transactions: tuple[Transaction, ...],
     receipts: tuple[TransactionReceipt, ...],
 ) -> tuple[TransactionReceipt, ...]:
-    by_identity = {
-        (receipt.transaction_index, receipt.transaction_hash.lower()): receipt
-        for receipt in receipts
-    }
+    by_identity = index_transaction_receipts(receipts)
     selected: list[TransactionReceipt] = []
     for transaction in plan_transactions:
-        receipt = by_identity.get((transaction.transaction_index, transaction.hash.lower()))
+        receipt = by_identity.get(
+            transaction_identity(transaction.transaction_index, transaction.hash)
+        )
         if receipt is None:
             raise ReplayInputError(
                 f"historical receipt unavailable for transaction #{transaction.transaction_index}"
@@ -318,22 +330,19 @@ def _result_by_index(
 
 
 def _candidate_leg_exact(result: TransactionReplayResult | None) -> bool:
-    comparison = None if result is None else result.comparison
     return bool(
-        comparison is not None
-        and comparison.receipt_semantics_exact_match
-        and comparison.pair_execution_exact_match
-        and comparison.gas_used is ComparisonState.MATCH
+        result is not None
+        and replay_receipt_semantics_exact(result)
+        and replay_pair_execution_exact(result)
+        and replay_gas_exact(result)
     )
 
 
 def _all_replay_exact(branch: ReplayBranchExecution) -> bool:
     return all(
-        result.submission_status is ReplaySubmissionStatus.REPLAYED
-        and result.replay_receipt is not None
-        and result.comparison is not None
-        and result.comparison.receipt_semantics_exact_match
-        and result.comparison.gas_used is ComparisonState.MATCH
+        replay_receipt_available(result)
+        and replay_receipt_semantics_exact(result)
+        and replay_gas_exact(result)
         for result in branch.transactions
     )
 
@@ -453,6 +462,30 @@ def _sender_native_evidence(
     )
 
 
+def observed_cycle_attribution_reliable(
+    *,
+    front_exact: bool,
+    victims_exact: bool,
+    back_exact: bool,
+    complete_replay_exact: bool,
+    checkpoint_reads_complete: bool,
+    pending_final_consistent: bool,
+    candidate_tokens_known: bool,
+) -> bool:
+    """State the complete domain-level reliability gate without hiding its inputs."""
+    return all(
+        (
+            front_exact,
+            victims_exact,
+            back_exact,
+            complete_replay_exact,
+            checkpoint_reads_complete,
+            pending_final_consistent,
+            candidate_tokens_known,
+        )
+    )
+
+
 def execute_observed_cycle_attribution(
     upstream_rpc: EthereumRPC,
     upstream_rpc_url: str,
@@ -472,13 +505,11 @@ def execute_observed_cycle_attribution(
     plan = plan_observed_replay(block, back_index)
     receipts = _historical_receipts_for_plan(plan.transactions, historical_receipts)
     executable_path, _ = AnvilFork.require_available(anvil_executable)
-    chain_id = upstream_rpc.get_chain_id()
-    if chain_id != 1:
+    setup = prepare_replay_environment(upstream_rpc, block)
+    if setup.chain_id != 1:
         raise ReplayInputError(
-            f"observed Ethereum attribution requires mainnet chain ID 1; got {chain_id}"
+            f"observed Ethereum attribution requires mainnet chain ID 1; got {setup.chain_id}"
         )
-    hardfork = infer_ethereum_hardfork(block)
-    historical_context = ReplayBlockContext.from_block(block, chain_id)
     pair_metadata = candidate.front_run.pair_metadata
     token0_address = pair_metadata.token0_address
     token1_address = pair_metadata.token1_address
@@ -495,8 +526,8 @@ def execute_observed_cycle_attribution(
         upstream_rpc_url,
         plan,
         receipts,
-        historical_context,
-        hardfork,
+        setup.historical_context,
+        setup.hardfork,
         anvil_executable=executable_path,
         observer=recorder,
     )
@@ -573,14 +604,14 @@ def execute_observed_cycle_attribution(
         back_native_delta,
         interval_contains_only_transaction=back_index == victim_indexes[-1] + 1,
     )
-    reliable = bool(
-        front_exact
-        and victims_exact
-        and back_exact
-        and _all_replay_exact(branch)
-        and checkpoint_reads_complete
-        and pending_final_consistent
-        and tokens_known
+    reliable = observed_cycle_attribution_reliable(
+        front_exact=front_exact,
+        victims_exact=victims_exact,
+        back_exact=back_exact,
+        complete_replay_exact=_all_replay_exact(branch),
+        checkpoint_reads_complete=checkpoint_reads_complete,
+        pending_final_consistent=pending_final_consistent,
+        candidate_tokens_known=tokens_known,
     )
     limitations: list[str] = []
     for warning in branch.environment.setup_warnings:

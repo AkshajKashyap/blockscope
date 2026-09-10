@@ -6,6 +6,8 @@ from blockscope.cli import app
 from blockscope.counterfactual import CounterfactualAnalysis, CounterfactualDiagnostics
 from blockscope.economics import EconomicsDiagnostics, ObservedEconomicsAnalysis
 from blockscope.replay import AnvilUnavailableError
+from blockscope.sandwich_workflow import SandwichWorkflowResult
+from blockscope.sandwiches import SandwichDiagnostics, SandwichScanResult
 from blockscope.types import Block, Transaction
 from blockscope.uniswap_v2 import (
     BlockSwapAnalysis,
@@ -19,6 +21,21 @@ from blockscope.uniswap_v2 import (
 )
 
 runner = CliRunner()
+
+
+def empty_sandwich_workflow(
+    swaps: BlockSwapAnalysis,
+    economics: ObservedEconomicsAnalysis | None = None,
+    counterfactuals: CounterfactualAnalysis | None = None,
+) -> SandwichWorkflowResult:
+    diagnostics = SandwichDiagnostics(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    return SandwichWorkflowResult(
+        swaps,
+        SandwichScanResult((), diagnostics),
+        economics,
+        counterfactuals,
+        (),
+    )
 
 
 def test_block_command_reports_missing_rpc_url() -> None:
@@ -137,7 +154,10 @@ def test_sandwiches_command_reports_zero_candidates_without_overclaiming() -> No
 
     with (
         patch("blockscope.cli.EthereumRPC.from_env", return_value=Mock()),
-        patch("blockscope.cli.analyze_block_swaps", return_value=swap_analysis),
+        patch(
+            "blockscope.cli.analyze_sandwich_workflow",
+            return_value=empty_sandwich_workflow(swap_analysis),
+        ),
     ):
         result = runner.invoke(app, ["sandwiches", "17000000"])
 
@@ -148,7 +168,7 @@ def test_sandwiches_command_reports_zero_candidates_without_overclaiming() -> No
     assert "confirmed" not in result.output.lower()
 
 
-def test_sandwiches_counterfactual_flag_runs_replay_and_includes_observed_context() -> None:
+def test_sandwiches_counterfactual_flag_renders_existing_diagnostics() -> None:
     swap_analysis = BlockSwapAnalysis(
         17_000_000,
         (),
@@ -162,11 +182,14 @@ def test_sandwiches_counterfactual_flag_runs_replay_and_includes_observed_contex
 
     with (
         patch("blockscope.cli.EthereumRPC.from_env", return_value=rpc),
-        patch("blockscope.cli.analyze_block_swaps", return_value=swap_analysis),
         patch(
-            "blockscope.cli.analyze_fixed_input_counterfactuals",
-            return_value=counterfactual_analysis,
-        ) as analyze_counterfactuals,
+            "blockscope.cli.analyze_sandwich_workflow",
+            return_value=empty_sandwich_workflow(
+                swap_analysis,
+                ObservedEconomicsAnalysis((), EconomicsDiagnostics(0, 0, 0, 0, 0)),
+                counterfactual_analysis,
+            ),
+        ),
     ):
         result = runner.invoke(app, ["sandwiches", "17000000", "--counterfactual"])
 
@@ -174,7 +197,6 @@ def test_sandwiches_counterfactual_flag_runs_replay_and_includes_observed_contex
     assert "Observed-economics diagnostics" in result.output
     assert "Counterfactual diagnostics" in result.output
     assert "Canonical provenance established: 0" in result.output
-    analyze_counterfactuals.assert_called_once_with(rpc, 17_000_000, ())
 
 
 def test_replay_command_reports_missing_anvil_actionably() -> None:
@@ -209,12 +231,14 @@ def test_sandwiches_evm_counterfactual_flag_is_integrated_without_live_backend()
     with (
         patch.dict("os.environ", {"ETH_RPC_URL": "https://rpc.example"}, clear=True),
         patch("blockscope.cli.EthereumRPC", return_value=rpc),
-        patch("blockscope.cli.analyze_block_swaps", return_value=swap_analysis),
         patch(
-            "blockscope.cli.analyze_fixed_input_counterfactuals",
-            return_value=counterfactual_analysis,
+            "blockscope.cli.analyze_sandwich_workflow",
+            return_value=empty_sandwich_workflow(
+                swap_analysis,
+                ObservedEconomicsAnalysis((), EconomicsDiagnostics(0, 0, 0, 0, 0)),
+                counterfactual_analysis,
+            ),
         ),
-        patch("blockscope.cli.execute_front_omission_counterfactual") as execute,
     ):
         result = runner.invoke(
             app,
@@ -224,7 +248,6 @@ def test_sandwiches_evm_counterfactual_flag_is_integrated_without_live_backend()
     assert result.exit_code == 0
     assert "Forked-EVM counterfactual diagnostics" in result.output
     assert "Experiments executed: 0" in result.output
-    execute.assert_not_called()
 
 
 def test_sandwiches_flows_flag_is_integrated_without_live_backend() -> None:
@@ -242,16 +265,13 @@ def test_sandwiches_flows_flag_is_integrated_without_live_backend() -> None:
     with (
         patch.dict("os.environ", {"ETH_RPC_URL": "https://rpc.example"}, clear=True),
         patch("blockscope.cli.EthereumRPC", return_value=rpc),
-        patch("blockscope.cli.analyze_block_swaps", return_value=swap_analysis),
         patch(
-            "blockscope.cli.analyze_observed_sandwich_economics",
-            return_value=economics_analysis,
+            "blockscope.cli.analyze_sandwich_workflow",
+            return_value=empty_sandwich_workflow(swap_analysis, economics_analysis),
         ),
-        patch("blockscope.cli.execute_observed_cycle_attribution") as execute,
     ):
         result = runner.invoke(app, ["sandwiches", "17000000", "--flows"])
 
     assert result.exit_code == 0
     assert "Observed full-cycle attribution diagnostics" in result.output
     assert "Attributions executed: 0" in result.output
-    execute.assert_not_called()

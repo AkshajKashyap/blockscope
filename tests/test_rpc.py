@@ -2,7 +2,13 @@ from unittest.mock import Mock
 
 import pytest
 
-from blockscope.rpc import ConfigurationError, EthereumRPC, RPCError, rpc_url_from_env
+from blockscope.rpc import (
+    ConfigurationError,
+    EthereumRPC,
+    RPCError,
+    redact_rpc_url_in_text,
+    rpc_url_from_env,
+)
 
 
 def test_missing_rpc_url_has_actionable_error() -> None:
@@ -41,6 +47,16 @@ def test_rpc_failure_is_wrapped_with_block_context() -> None:
 
     with pytest.raises(RPCError, match="Could not fetch Ethereum block 123: connection refused"):
         client.get_block(123)
+
+
+def test_rpc_url_redaction_preserves_host_but_removes_credentials_and_path() -> None:
+    url = "https://user:password@rpc.example/v2/secret?api-key=value"
+    message = redact_rpc_url_in_text(f"failed to connect to {url}", url)
+
+    assert message == "failed to connect to https://rpc.example/<redacted>"
+    assert "password" not in message
+    assert "secret" not in message
+    assert "api-key" not in message
 
 
 def test_rpc_fetches_and_normalizes_transaction_receipt() -> None:

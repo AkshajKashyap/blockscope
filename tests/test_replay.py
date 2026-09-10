@@ -303,6 +303,11 @@ def test_observed_replay_orchestrates_prefix_and_target_in_one_manual_block() ->
 
     assert tuple(item.historical_transaction.transaction_index for item in report.prefix) == (0,)
     assert report.target.historical_transaction.transaction_index == 1
+    assert report.target.historical_transaction.hash == transactions[1].hash
+    assert report.target.historical_receipt.transaction_hash == transactions[1].hash
+    assert report.target.local_transaction_hash == "0xlocal1"
+    assert report.target.replay_receipt is not None
+    assert report.target.replay_receipt.transaction_hash == "0xlocal1"
     assert report.prefix_receipt_evidence_exact is True
     assert report.target_state_reliable is True
     assert report.pair_execution_exact_match is True
@@ -331,6 +336,28 @@ def test_anvil_startup_failure_includes_stderr() -> None:
         pytest.raises(AnvilUnavailableError, match="unknown option --example"),
     ):
         AnvilFork("https://rpc.example", 99, 1).__enter__()
+
+
+def test_anvil_startup_failure_redacts_upstream_rpc_credentials() -> None:
+    upstream_url = "https://user:password@rpc.example/v2/secret?api-key=value"
+    process = Mock()
+    process.poll.return_value = 2
+    process.returncode = 2
+    stderr = io.StringIO(f"could not fork {upstream_url}")
+    with (
+        patch.object(AnvilFork, "require_available", return_value=("/bin/anvil", "v1")),
+        patch.object(AnvilFork, "_free_port", return_value=8547),
+        patch("blockscope.replay.tempfile.TemporaryFile", return_value=stderr),
+        patch("blockscope.replay.subprocess.Popen", return_value=process),
+        pytest.raises(AnvilUnavailableError) as error,
+    ):
+        AnvilFork(upstream_url, 99, 1).__enter__()
+
+    message = str(error.value)
+    assert "https://rpc.example/<redacted>" in message
+    assert "password" not in message
+    assert "secret" not in message
+    assert "api-key" not in message
 
 
 def test_anvil_context_manager_terminates_process() -> None:

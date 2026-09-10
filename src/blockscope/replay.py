@@ -15,7 +15,7 @@ from typing import Any, Protocol, Self, TextIO
 
 import httpx
 
-from blockscope.rpc import BlockScopeError, EthereumRPC
+from blockscope.rpc import BlockScopeError, EthereumRPC, redact_rpc_url_in_text
 from blockscope.types import AccessListEntry, Block, Transaction, TransactionReceipt
 from blockscope.uniswap_v2 import ReserveState, scan_receipt_swap_evidence
 
@@ -380,6 +380,29 @@ class ReplayEnvironmentEvidence:
     setup_warnings: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ReplayEnvironmentSetup:
+    """Shared mainnet branch inputs derived from one historical block."""
+
+    chain_id: int
+    hardfork: str
+    historical_context: ReplayBlockContext
+
+
+def prepare_replay_environment(
+    upstream_rpc: EthereumRPC,
+    block: Block,
+) -> ReplayEnvironmentSetup:
+    """Derive common execution inputs without imposing experiment reliability policy."""
+    chain_id = upstream_rpc.get_chain_id()
+    hardfork = infer_ethereum_hardfork(block)
+    return ReplayEnvironmentSetup(
+        chain_id,
+        hardfork,
+        ReplayBlockContext.from_block(block, chain_id),
+    )
+
+
 def compare_replay_environment(
     historical: ReplayBlockContext,
     local: ReplayBlockContext | None,
@@ -441,6 +464,38 @@ class TransactionReplayResult:
     error: str | None
 
 
+def replay_receipt_available(result: TransactionReplayResult) -> bool:
+    """Return whether a planned transaction was submitted, mined, and has a receipt."""
+    return (
+        result.submission_status is ReplaySubmissionStatus.REPLAYED
+        and result.replay_receipt is not None
+    )
+
+
+def replay_receipt_semantics_exact(result: TransactionReplayResult) -> bool:
+    """Return whether normalized status and log evidence reproduce exactly."""
+    return bool(
+        result.comparison is not None
+        and result.comparison.receipt_semantics_exact_match
+    )
+
+
+def replay_pair_execution_exact(result: TransactionReplayResult) -> bool:
+    """Return whether status, V2 Swap semantics, and post-Sync reserves match."""
+    return bool(
+        result.comparison is not None
+        and result.comparison.pair_execution_exact_match
+    )
+
+
+def replay_gas_exact(result: TransactionReplayResult) -> bool:
+    """Return whether historical and replay gas usage match exactly."""
+    return bool(
+        result.comparison is not None
+        and result.comparison.gas_used is ComparisonState.MATCH
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ObservedReplayReport:
     """Complete prefix/target observed replay evidence."""
@@ -475,11 +530,7 @@ def assemble_observed_replay_report(
     """Build reliability labels from explicit prefix and target evidence."""
     if len(transactions) != len(plan.transactions):
         raise ReplayInputError("replay results do not align with the planned transactions")
-    prefix_exact = all(
-        result.comparison is not None
-        and result.comparison.receipt_semantics_exact_match
-        for result in transactions[:-1]
-    )
+    prefix_exact = all(replay_receipt_semantics_exact(result) for result in transactions[:-1])
     target = transactions[-1]
     target_reliable = prefix_exact and target.comparison is not None
     pair_exact = bool(
@@ -658,7 +709,7 @@ class AnvilFork:
         except BaseException:
             self.close()
             raise
-        stderr = self._stderr_text()
+        stderr = redact_rpc_url_in_text(self._stderr_text(), self.upstream_rpc_url)
         self.close()
         detail = f"; stderr: {stderr}" if stderr else ""
         raise AnvilUnavailableError(f"Anvil startup failed: {last_error}{detail}")
@@ -1004,25 +1055,24 @@ def replay_observed_transaction(
         upstream_rpc.get_transaction_receipt(transaction.hash)
         for transaction in plan.transactions
     )
-    chain_id = upstream_rpc.get_chain_id()
-    if chain_id != 1:
+    setup = prepare_replay_environment(upstream_rpc, block)
+    if setup.chain_id != 1:
         raise ReplayInputError(
-            f"observed Ethereum replay requires mainnet chain ID 1; connected chain ID is {chain_id}"
+            "observed Ethereum replay requires mainnet chain ID 1; connected chain ID is "
+            f"{setup.chain_id}"
         )
-    hardfork = infer_ethereum_hardfork(block)
-    historical_context = ReplayBlockContext.from_block(block, chain_id)
     branch = execute_replay_plan(
         upstream_rpc_url,
         plan,
         historical_receipts,
-        historical_context,
-        hardfork,
+        setup.historical_context,
+        setup.hardfork,
         anvil_executable=executable_path,
     )
     return assemble_observed_replay_report(
         plan,
         branch.backend_version,
-        hardfork,
+        setup.hardfork,
         branch.environment,
         branch.transactions,
     )

@@ -4,6 +4,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+TransactionIdentity = tuple[int, str]
+
+
+def transaction_identity(
+    transaction_index: int,
+    transaction_hash: str,
+) -> TransactionIdentity:
+    """Return the canonical historical identity key used across subsystem lookups."""
+    return transaction_index, transaction_hash.lower()
+
 
 def _integer(value: Any, *, field_name: str) -> int:
     """Convert an RPC quantity to an integer with a useful error on bad data."""
@@ -239,3 +249,13 @@ class TransactionReceipt:
             ),
             raw=_plain(data),
         )
+
+
+def index_transaction_receipts(
+    receipts: tuple[TransactionReceipt, ...],
+) -> dict[TransactionIdentity, TransactionReceipt]:
+    """Index receipts by canonical historical transaction identity."""
+    return {
+        transaction_identity(receipt.transaction_index, receipt.transaction_hash): receipt
+        for receipt in receipts
+    }

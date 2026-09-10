@@ -9,23 +9,19 @@ import typer
 
 from blockscope.counterfactual import (
     FixedInputCounterfactual,
-    analyze_fixed_input_counterfactuals,
 )
 from blockscope.economics import (
     ObservedAmount,
     ObservedAsset,
     ObservedSandwichEconomics,
-    analyze_observed_sandwich_economics,
 )
 from blockscope.evm_counterfactual import (
     CounterfactualEVMExecution,
-    execute_front_omission_counterfactual,
 )
 from blockscope.observed_attribution import (
     AddressBalanceDelta,
     AddressCheckpoint,
     ObservedCycleAttribution,
-    execute_observed_cycle_attribution,
 )
 from blockscope.replay import (
     ObservedReplayReport,
@@ -34,7 +30,8 @@ from blockscope.replay import (
     replay_observed_transaction,
 )
 from blockscope.rpc import BlockScopeError, EthereumRPC, rpc_url_from_env
-from blockscope.sandwiches import SandwichCandidate, detect_strict_sandwich_candidates
+from blockscope.sandwich_workflow import SandwichWorkflowOptions, analyze_sandwich_workflow
+from blockscope.sandwiches import SandwichCandidate
 from blockscope.types import Transaction
 from blockscope.uniswap_v2 import (
     EnrichedUniswapV2Swap,
@@ -931,72 +928,41 @@ def show_sandwiches(
         else:
             upstream_url = None
             rpc = EthereumRPC.from_env()
-        swap_analysis = analyze_block_swaps(rpc, number)
-        result = detect_strict_sandwich_candidates(swap_analysis.swaps)
-        economics_analysis = (
-            analyze_observed_sandwich_economics(result.candidates, swap_analysis.receipts)
-            if economics or counterfactual or evm_counterfactual or flows
-            else None
+        workflow = analyze_sandwich_workflow(
+            rpc,
+            upstream_url,
+            number,
+            SandwichWorkflowOptions(
+                limit,
+                economics,
+                counterfactual,
+                evm_counterfactual,
+                flows,
+            ),
         )
-        counterfactual_analysis = (
-            analyze_fixed_input_counterfactuals(rpc, number, result.candidates)
-            if counterfactual or evm_counterfactual
-            else None
-        )
-        if evm_counterfactual or flows:
-            assert upstream_url is not None
-            block = rpc.get_block(number)
-        if evm_counterfactual:
-            evm_results = tuple(
-                execute_front_omission_counterfactual(
-                    rpc,
-                    upstream_url,
-                    block,
-                    swap_analysis.receipts,
-                    candidate,
-                    counterfactual_analysis.candidates[index],
-                )
-                for index, candidate in enumerate(result.candidates[:limit])
-            )
-        else:
-            evm_results = ()
-        if flows:
-            assert upstream_url is not None
-            assert economics_analysis is not None
-            flow_results = tuple(
-                execute_observed_cycle_attribution(
-                    rpc,
-                    upstream_url,
-                    block,
-                    swap_analysis.receipts,
-                    candidate,
-                    economics_analysis.candidates[index],
-                )
-                for index, candidate in enumerate(result.candidates[:limit])
-            )
-        else:
-            flow_results = ()
     except (BlockScopeError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
 
     typer.echo(f"Strict Sandwich Candidates — Ethereum Block {number}\n")
-    for index, candidate in enumerate(result.candidates[:limit], start=1):
+    for index, analysis in enumerate(workflow.candidates, start=1):
+        candidate = analysis.candidate
         for line in _candidate_lines(index, candidate):
             typer.echo(line)
-        if economics_analysis is not None:
-            for line in _economics_lines(economics_analysis.candidates[index - 1]):
+        if analysis.economics is not None:
+            for line in _economics_lines(analysis.economics):
                 typer.echo(line)
-        if counterfactual and counterfactual_analysis is not None:
-            for line in _counterfactual_lines(counterfactual_analysis.candidates[index - 1]):
+        if counterfactual and analysis.mathematical_counterfactual is not None:
+            for line in _counterfactual_lines(analysis.mathematical_counterfactual):
                 typer.echo(line)
-        if evm_counterfactual:
-            for line in _evm_counterfactual_lines(evm_results[index - 1]):
+        if analysis.evm_counterfactual is not None:
+            for line in _evm_counterfactual_lines(analysis.evm_counterfactual):
                 typer.echo(line)
-        if flows:
-            for line in _observed_attribution_lines(flow_results[index - 1]):
+        if analysis.attribution is not None:
+            for line in _observed_attribution_lines(analysis.attribution):
                 typer.echo(line)
         typer.echo()
+    result = workflow.sandwiches
     remaining = len(result.candidates) - limit
     if remaining > 0:
         typer.echo(f"… {remaining} more candidate(s); use --limit to display more")
@@ -1026,8 +992,8 @@ def show_sandwiches(
         f"{diagnostics.rejected_back_run_reversal}"
     )
     typer.echo(f"Duplicate candidates suppressed: {diagnostics.duplicate_candidates_suppressed}")
-    if economics_analysis is not None:
-        economics_diagnostics = economics_analysis.diagnostics
+    if workflow.economics is not None:
+        economics_diagnostics = workflow.economics.diagnostics
         typer.echo("\nObserved-economics diagnostics")
         typer.echo(f"Economics calculated: {economics_diagnostics.economics_calculated}")
         typer.echo(
@@ -1045,8 +1011,8 @@ def show_sandwiches(
         typer.echo(
             f"Missing token metadata: {economics_diagnostics.missing_token_metadata}"
         )
-    if counterfactual_analysis is not None:
-        counterfactual_diagnostics = counterfactual_analysis.diagnostics
+    if workflow.mathematical_counterfactuals is not None:
+        counterfactual_diagnostics = workflow.mathematical_counterfactuals.diagnostics
         typer.echo("\nCounterfactual diagnostics")
         typer.echo(
             "Canonical provenance established: "
@@ -1072,12 +1038,20 @@ def show_sandwiches(
             f"{counterfactual_diagnostics.observed_model_mismatches}"
         )
     if evm_counterfactual:
+        evm_results = tuple(
+            item.evm_counterfactual
+            for item in workflow.candidates
+            if item.evm_counterfactual is not None
+        )
         reliable_count = sum(item.reliable for item in evm_results)
         typer.echo("\nForked-EVM counterfactual diagnostics")
         typer.echo(f"Experiments executed: {len(evm_results)}")
         typer.echo(f"Reliable experiments: {reliable_count}")
         typer.echo(f"Unreliable experiments: {len(evm_results) - reliable_count}")
     if flows:
+        flow_results = tuple(
+            item.attribution for item in workflow.candidates if item.attribution is not None
+        )
         reliable_count = sum(item.reliable for item in flow_results)
         partial_count = sum(not item.checkpoint_reads_complete for item in flow_results)
         typer.echo("\nObserved full-cycle attribution diagnostics")

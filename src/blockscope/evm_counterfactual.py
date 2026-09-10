@@ -9,23 +9,29 @@ from blockscope.replay import (
     ComparisonState,
     ObservedReplayReport,
     PairSwapEvidence,
-    ReplayBlockContext,
     ReplayBranchExecution,
     ReplayInputError,
     ReplayPlan,
-    ReplaySubmissionStatus,
     SemanticLog,
     TransactionReplayResult,
     assemble_observed_replay_report,
     execute_replay_plan,
-    infer_ethereum_hardfork,
     pair_swap_evidence,
     plan_observed_replay,
+    prepare_replay_environment,
+    replay_receipt_available,
+    replay_receipt_semantics_exact,
     semantic_receipt_logs,
 )
 from blockscope.rpc import EthereumRPC
 from blockscope.sandwiches import TOKEN0_TO_TOKEN1, TOKEN1_TO_TOKEN0, SandwichCandidate
-from blockscope.types import Block, Transaction, TransactionReceipt
+from blockscope.types import (
+    Block,
+    Transaction,
+    TransactionReceipt,
+    index_transaction_receipts,
+    transaction_identity,
+)
 from blockscope.uniswap_v2 import ReserveState, scan_receipt_swap_evidence
 
 
@@ -165,13 +171,12 @@ def _receipts_for_plan(
     plan: ReplayPlan,
     receipts: tuple[TransactionReceipt, ...],
 ) -> tuple[TransactionReceipt, ...]:
-    by_identity = {
-        (receipt.transaction_index, receipt.transaction_hash.lower()): receipt
-        for receipt in receipts
-    }
+    by_identity = index_transaction_receipts(receipts)
     selected: list[TransactionReceipt] = []
     for transaction in plan.transactions:
-        receipt = by_identity.get((transaction.transaction_index, transaction.hash.lower()))
+        receipt = by_identity.get(
+            transaction_identity(transaction.transaction_index, transaction.hash)
+        )
         if receipt is None:
             raise ReplayInputError(
                 f"historical receipt is unavailable for transaction "
@@ -448,14 +453,6 @@ def _environment_isolation(
     )
 
 
-def _branch_execution_complete(results: tuple[TransactionReplayResult, ...]) -> bool:
-    return all(
-        result.submission_status is ReplaySubmissionStatus.REPLAYED
-        and result.replay_receipt is not None
-        for result in results
-    )
-
-
 def execute_front_omission_counterfactual(
     upstream_rpc: EthereumRPC,
     upstream_rpc_url: str,
@@ -473,13 +470,11 @@ def execute_front_omission_counterfactual(
     target_index = candidate.victims[-1].swap.transaction_index
     plan = plan_front_omission(block, front_index, target_index)
     executable_path, _ = AnvilFork.require_available(anvil_executable)
-    chain_id = upstream_rpc.get_chain_id()
-    if chain_id != 1:
+    setup = prepare_replay_environment(upstream_rpc, block)
+    if setup.chain_id != 1:
         raise ReplayInputError(
-            f"front-omitted Ethereum replay requires mainnet chain ID 1; got {chain_id}"
+            f"front-omitted Ethereum replay requires mainnet chain ID 1; got {setup.chain_id}"
         )
-    hardfork = infer_ethereum_hardfork(block)
-    historical_context = ReplayBlockContext.from_block(block, chain_id)
     observed_receipts = _receipts_for_plan(plan.observed, historical_receipts)
     counterfactual_receipts = _receipts_for_plan(
         plan.counterfactual,
@@ -490,22 +485,22 @@ def execute_front_omission_counterfactual(
         upstream_rpc_url,
         plan.observed,
         observed_receipts,
-        historical_context,
-        hardfork,
+        setup.historical_context,
+        setup.hardfork,
         anvil_executable=executable_path,
     )
     counterfactual_branch = execute_replay_plan(
         upstream_rpc_url,
         plan.counterfactual,
         counterfactual_receipts,
-        historical_context,
-        hardfork,
+        setup.historical_context,
+        setup.hardfork,
         anvil_executable=executable_path,
     )
     observed_report = assemble_observed_replay_report(
         plan.observed,
         observed_branch.backend_version,
-        hardfork,
+        setup.hardfork,
         observed_branch.environment,
         observed_branch.transactions,
     )
@@ -531,16 +526,13 @@ def execute_front_omission_counterfactual(
         mathematical,
         target_index,
     )
-    counterfactual_prefix_executed = _branch_execution_complete(
-        counterfactual_branch.prefix
+    counterfactual_prefix_executed = all(
+        replay_receipt_available(result) for result in counterfactual_branch.prefix
     )
-    counterfactual_target_executed = _branch_execution_complete(
-        (counterfactual_branch.target,)
+    counterfactual_target_executed = replay_receipt_available(
+        counterfactual_branch.target
     )
-    observed_target_semantics_exact = bool(
-        observed_report.target.comparison is not None
-        and observed_report.target.comparison.receipt_semantics_exact_match
-    )
+    observed_target_semantics_exact = replay_receipt_semantics_exact(observed_report.target)
     reliable = all(
         (
             observed_report.pair_execution_exact_match,

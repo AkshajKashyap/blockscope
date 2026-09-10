@@ -8,7 +8,11 @@ from blockscope.sandwiches import (
     TOKEN1_TO_TOKEN0,
     SandwichCandidate,
 )
-from blockscope.types import TransactionReceipt
+from blockscope.types import (
+    TransactionReceipt,
+    index_transaction_receipts,
+    transaction_identity,
+)
 from blockscope.uniswap_v2 import EnrichedUniswapV2Swap, TokenMetadata
 
 
@@ -130,20 +134,14 @@ def _invariant(enriched: EnrichedUniswapV2Swap) -> SwapInvariantEvidence:
     return SwapInvariantEvidence(enriched, k_pre, k_post, k_post - k_pre)
 
 
-def _receipt_lookup(
-    receipts: tuple[TransactionReceipt, ...],
-) -> dict[tuple[int, str], TransactionReceipt]:
-    return {
-        (receipt.transaction_index, receipt.transaction_hash.lower()): receipt
-        for receipt in receipts
-    }
-
-
 def _gas_for(
     enriched: EnrichedUniswapV2Swap,
     receipts: dict[tuple[int, str], TransactionReceipt],
 ) -> int | None:
-    key = (enriched.swap.transaction_index, enriched.swap.transaction_hash.lower())
+    key = transaction_identity(
+        enriched.swap.transaction_index,
+        enriched.swap.transaction_hash,
+    )
     return transaction_gas_fee_wei(receipts.get(key))
 
 
@@ -185,7 +183,7 @@ def calculate_observed_sandwich_economics(
     back_input, back_output = _flow_for_direction(
         candidate.back_run, back_direction, token0, token1
     )
-    receipt_by_transaction = _receipt_lookup(receipts)
+    receipt_by_transaction = index_transaction_receipts(receipts)
     front_gas = _gas_for(candidate.front_run, receipt_by_transaction)
     back_gas = _gas_for(candidate.back_run, receipt_by_transaction)
     total_outer_gas = None if front_gas is None or back_gas is None else front_gas + back_gas

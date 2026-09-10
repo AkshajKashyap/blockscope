@@ -1,4 +1,19 @@
-from blockscope.types import Block
+from blockscope.types import (
+    Block,
+    TransactionReceipt,
+    index_transaction_receipts,
+    transaction_identity,
+)
+
+
+def test_transaction_identity_normalizes_hash_case_without_losing_index() -> None:
+    assert transaction_identity(7, "0xAbCd") == (7, "0xabcd")
+
+
+def test_receipt_index_uses_canonical_historical_identity() -> None:
+    receipt = TransactionReceipt("0xAbCd", 7, 100, 1, 21_000, ())
+
+    assert index_transaction_receipts((receipt,))[(7, "0xabcd")] is receipt
 
 
 def transaction_data(**overrides: object) -> dict[str, object]:

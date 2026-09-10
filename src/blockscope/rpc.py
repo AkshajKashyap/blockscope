@@ -2,6 +2,7 @@
 
 import os
 from collections.abc import Mapping
+from urllib.parse import urlsplit
 
 from web3 import Web3
 
@@ -18,6 +19,24 @@ class ConfigurationError(BlockScopeError):
 
 class RPCError(BlockScopeError):
     """Raised when an Ethereum RPC request cannot be completed or decoded."""
+
+
+def redact_rpc_url_in_text(text: str, rpc_url: str) -> str:
+    """Remove credentials, paths, and query parameters when an error repeats an RPC URL."""
+    if not rpc_url or rpc_url not in text:
+        return text
+    try:
+        parsed = urlsplit(rpc_url)
+        hostname = parsed.hostname
+        if hostname is None:
+            replacement = "<redacted RPC URL>"
+        else:
+            host = f"[{hostname}]" if ":" in hostname else hostname
+            port = "" if parsed.port is None else f":{parsed.port}"
+            replacement = f"{parsed.scheme}://{host}{port}/<redacted>"
+    except ValueError:
+        replacement = "<redacted RPC URL>"
+    return text.replace(rpc_url, replacement)
 
 
 def rpc_url_from_env(environ: Mapping[str, str] | None = None) -> str:
@@ -38,7 +57,11 @@ class EthereumRPC:
     def __init__(self, rpc_url: str) -> None:
         if not rpc_url.strip():
             raise ConfigurationError("Ethereum RPC URL cannot be empty")
+        self._rpc_url = rpc_url
         self._web3 = Web3(Web3.HTTPProvider(rpc_url))
+
+    def _error_detail(self, exc: Exception) -> str:
+        return redact_rpc_url_in_text(str(exc), self._rpc_url)
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "EthereumRPC":
@@ -55,7 +78,9 @@ class EthereumRPC:
         except BlockScopeError:
             raise
         except Exception as exc:
-            raise RPCError(f"Could not fetch Ethereum block {number}: {exc}") from exc
+            raise RPCError(
+                f"Could not fetch Ethereum block {number}: {self._error_detail(exc)}"
+            ) from exc
 
     def get_transaction_receipt(self, transaction_hash: str) -> TransactionReceipt:
         """Fetch and normalize a transaction receipt and all of its logs."""
@@ -66,7 +91,8 @@ class EthereumRPC:
             raise
         except Exception as exc:
             raise RPCError(
-                f"Could not fetch receipt for transaction {transaction_hash}: {exc}"
+                f"Could not fetch receipt for transaction {transaction_hash}: "
+                f"{self._error_detail(exc)}"
             ) from exc
 
     def get_chain_id(self) -> int:
@@ -74,7 +100,9 @@ class EthereumRPC:
         try:
             return int(self._web3.eth.chain_id)
         except Exception as exc:
-            raise RPCError(f"Could not determine Ethereum chain ID: {exc}") from exc
+            raise RPCError(
+                f"Could not determine Ethereum chain ID: {self._error_detail(exc)}"
+            ) from exc
 
     def eth_call(self, contract_address: str, call_data: str, block_number: int) -> bytes:
         """Execute a read-only contract call against historical block state."""
@@ -93,5 +121,6 @@ class EthereumRPC:
             raise
         except Exception as exc:
             raise RPCError(
-                f"Could not call contract {contract_address} at block {block_number}: {exc}"
+                f"Could not call contract {contract_address} at block {block_number}: "
+                f"{self._error_detail(exc)}"
             ) from exc

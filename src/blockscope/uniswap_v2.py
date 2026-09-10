@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from blockscope.rpc import BlockScopeError, EthereumRPC
-from blockscope.types import Log, TransactionReceipt
+from blockscope.types import Log, TransactionReceipt, transaction_identity
 
 SWAP_EVENT_SIGNATURE = "Swap(address,uint256,uint256,uint256,uint256,address)"
 SWAP_EVENT_TOPIC = "0xd78ad95fa46c994b6551d0da85fc275fe613ce37657fb8d5e3d130840159d822"
@@ -364,7 +364,10 @@ def _scan_block(
 ]:
     block = rpc.get_block(block_number)
     transaction_senders = {
-        (transaction.transaction_index, transaction.hash.lower()): transaction.from_address.lower()
+        transaction_identity(
+            transaction.transaction_index,
+            transaction.hash,
+        ): transaction.from_address.lower()
         for transaction in block.transactions
     }
     contexts: list[SwapReserveContext] = []
@@ -509,7 +512,10 @@ def analyze_block_swaps(rpc: EthereumRPC, block_number: int) -> BlockSwapAnalysi
         pair = resolver.pair(context.swap.pair_address)
         token0 = resolver.token(pair.token0_address) if pair.token0_address else None
         token1 = resolver.token(pair.token1_address) if pair.token1_address else None
-        identity = (context.swap.transaction_index, context.swap.transaction_hash.lower())
+        identity = transaction_identity(
+            context.swap.transaction_index,
+            context.swap.transaction_hash,
+        )
         enriched.append(
             EnrichedUniswapV2Swap(
                 context,
