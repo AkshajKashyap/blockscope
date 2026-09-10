@@ -21,6 +21,12 @@ from blockscope.evm_counterfactual import (
     CounterfactualEVMExecution,
     execute_front_omission_counterfactual,
 )
+from blockscope.observed_attribution import (
+    AddressBalanceDelta,
+    AddressCheckpoint,
+    ObservedCycleAttribution,
+    execute_observed_cycle_attribution,
+)
 from blockscope.replay import (
     ObservedReplayReport,
     PairSwapEvidence,
@@ -565,6 +571,225 @@ def _evm_counterfactual_lines(result: CounterfactualEVMExecution) -> tuple[str, 
     return tuple(lines)
 
 
+def _checkpoint_balance_lines(
+    checkpoint: AddressCheckpoint,
+    token0_label: str,
+    token1_label: str,
+) -> tuple[str, ...]:
+    native = "unavailable" if checkpoint.native_wei is None else str(checkpoint.native_wei)
+    token0 = (
+        "unavailable" if checkpoint.token0_balance is None else str(checkpoint.token0_balance)
+    )
+    token1 = (
+        "unavailable" if checkpoint.token1_balance is None else str(checkpoint.token1_balance)
+    )
+    return (
+        (
+            f"    {checkpoint.checkpoint.value}: ETH={native} wei; "
+            f"{token0_label}={token0}; {token1_label}={token1}"
+        ),
+        *(f"      Read limitation: {error}" for error in checkpoint.errors),
+    )
+
+
+def _balance_delta_line(
+    label: str,
+    delta: AddressBalanceDelta,
+    token0_label: str,
+    token1_label: str,
+) -> str:
+    def shown(value: int | None, suffix: str = "") -> str:
+        return "unavailable" if value is None else f"{value:+d}{suffix}"
+
+    return (
+        f"    {label}: ETH={shown(delta.native_wei, ' wei')}; "
+        f"{token0_label}={shown(delta.token0)}; {token1_label}={shown(delta.token1)}"
+    )
+
+
+def _sum_available(values: tuple[int | None, ...]) -> int | None:
+    return None if any(value is None for value in values) else sum(
+        value for value in values if value is not None
+    )
+
+
+def _observed_attribution_lines(result: ObservedCycleAttribution) -> tuple[str, ...]:
+    token0_label = (
+        result.token0_metadata.symbol
+        if result.token0_metadata is not None and result.token0_metadata.symbol
+        else "token0"
+    )
+    token1_label = (
+        result.token1_metadata.symbol
+        if result.token1_metadata is not None and result.token1_metadata.symbol
+        else "token1"
+    )
+    nonce = result.nonce_relationship
+    lines = [
+        "Observed Full-Cycle Attribution",
+        f"  Fork base: {result.branch.plan.fork_block_number}",
+        (
+            "  Replay order: "
+            + ", ".join(
+                f"#{transaction.transaction_index}"
+                for transaction in result.branch.plan.transactions
+            )
+        ),
+        "  Checkpoints: latest S0 and cumulative pending S1/S2/S3; one final mine",
+        f"  Attribution reliable: {'yes' if result.reliable else 'no'}",
+        "Candidate identities",
+        f"  Outer sender: {result.candidate.actor_address}",
+        f"  Candidate pair: {result.candidate_pair_address}",
+        f"  token0: {result.token0_address} ({token0_label})",
+        f"  token1: {result.token1_address} ({token1_label})",
+        "Replay reproduction gate",
+        f"  Front exact: {'yes' if result.front_exact else 'no'}",
+        f"  All victims exact: {'yes' if result.victims_exact else 'no'}",
+        f"  Back exact: {'yes' if result.back_exact else 'no'}",
+        (
+            "  Checkpoint reads complete: "
+            f"{'yes' if result.checkpoint_reads_complete else 'no'}"
+        ),
+        (
+            "  Pending S3 equals mined S3: "
+            f"{'yes' if result.pending_final_consistent else 'no'}"
+        ),
+        "Back nonce relationship",
+        f"  Front sender: {nonce.front_sender}",
+        f"  Front nonce: {nonce.front_nonce}",
+        f"  Back sender: {nonce.back_sender}",
+        f"  Back nonce: {nonce.back_nonce}",
+        f"  Same sender: {'yes' if nonce.same_sender else 'no'}",
+        (
+            "  Back nonce equals front nonce + 1: "
+            + ("unavailable" if nonce.consecutive is None else "yes" if nonce.consecutive else "no")
+        ),
+        "Tracked-address balances (raw exact units)",
+    ]
+    for address in result.addresses:
+        lines.extend(
+            (
+                f"  Address: {address.tracked_address.address}",
+                f"    Relationships: {', '.join(address.tracked_address.relationships)}",
+                *_checkpoint_balance_lines(address.before_front, token0_label, token1_label),
+                *_checkpoint_balance_lines(address.after_front, token0_label, token1_label),
+                *_checkpoint_balance_lines(address.after_victims, token0_label, token1_label),
+                *_checkpoint_balance_lines(address.after_back, token0_label, token1_label),
+                _balance_delta_line(
+                    "Front delta (S1-S0)",
+                    address.front_delta,
+                    token0_label,
+                    token1_label,
+                ),
+                _balance_delta_line(
+                    "Victim interval delta (S2-S1)",
+                    address.victim_interval_delta,
+                    token0_label,
+                    token1_label,
+                ),
+                _balance_delta_line(
+                    "Back interval delta (S3-S2)",
+                    address.back_interval_delta,
+                    token0_label,
+                    token1_label,
+                ),
+                _balance_delta_line(
+                    "Full-cycle delta (S3-S0)",
+                    address.full_cycle_delta,
+                    token0_label,
+                    token1_label,
+                ),
+            )
+        )
+    front_native = result.front_sender_native
+    back_native = result.back_sender_native
+    lines.extend(
+        (
+            "Outer-sender native accounting",
+            (
+                f"  Front #{front_native.transaction_index}: value={front_native.transaction_value_wei} "
+                f"gas={front_native.gas_fee_wei} balance_delta="
+                f"{front_native.observed_native_delta_wei} delta_beyond_gas_and_value="
+                f"{front_native.native_delta_beyond_gas_and_value_wei}"
+            ),
+            (
+                f"  Back interval ending #{back_native.transaction_index}: "
+                f"value={back_native.transaction_value_wei} gas={back_native.gas_fee_wei} "
+                f"balance_delta={back_native.observed_native_delta_wei} "
+                f"delta_beyond_gas_and_value="
+                f"{back_native.native_delta_beyond_gas_and_value_wei} "
+                f"single-transaction interval="
+                f"{'yes' if back_native.interval_contains_only_transaction else 'no'}"
+            ),
+            "Candidate-token Transfer evidence — front",
+        )
+    )
+    for evidence in result.front_transfers:
+        transfer = evidence.transfer
+        lines.append(
+            f"  log {transfer.log_index}: token={transfer.token_address} "
+            f"{transfer.from_address} -> {transfer.to_address} amount={transfer.raw_amount} "
+            f"touches_tracked={'yes' if evidence.touches_tracked_address else 'no'}"
+        )
+    if not result.front_transfers:
+        lines.append("  none")
+    lines.append("Candidate-token Transfer evidence — back")
+    for evidence in result.back_transfers:
+        transfer = evidence.transfer
+        lines.append(
+            f"  log {transfer.log_index}: token={transfer.token_address} "
+            f"{transfer.from_address} -> {transfer.to_address} amount={transfer.raw_amount} "
+            f"touches_tracked={'yes' if evidence.touches_tracked_address else 'no'}"
+        )
+    if not result.back_transfers:
+        lines.append("  none")
+    total_native = _sum_available(
+        tuple(item.full_cycle_delta.native_wei for item in result.addresses)
+    )
+    total_token0 = _sum_available(
+        tuple(item.full_cycle_delta.token0 for item in result.addresses)
+    )
+    total_token1 = _sum_available(
+        tuple(item.full_cycle_delta.token1 for item in result.addresses)
+    )
+    initial_position = result.economics.initial_asset.pair_position
+    intermediate_position = result.economics.intermediate_asset.pair_position
+    tracked_initial = total_token0 if initial_position == "token0" else total_token1
+    tracked_intermediate = total_token0 if intermediate_position == "token0" else total_token1
+    lines.extend(
+        (
+            "Pair-level versus tracked-address endpoint state",
+            (
+                "  Pair-level gross outer-cycle delta: "
+                f"{result.economics.gross_cycle_delta.raw_amount:+d} raw "
+                f"{result.economics.initial_asset.symbol or initial_position}"
+            ),
+            (
+                "  Tracked-address total for that token: "
+                f"{tracked_initial if tracked_initial is not None else 'unavailable'}"
+            ),
+            (
+                "  Pair-level intermediate inventory delta: "
+                f"{result.economics.intermediate_inventory_delta.raw_amount:+d} raw "
+                f"{result.economics.intermediate_asset.symbol or intermediate_position}"
+            ),
+            (
+                "  Tracked-address total for that token: "
+                f"{tracked_intermediate if tracked_intermediate is not None else 'unavailable'}"
+            ),
+            f"  Tracked-address native ETH total delta: {total_native}",
+        )
+    )
+    lines.extend(f"  Limitation: {limitation}" for limitation in result.limitations)
+    lines.extend(
+        (
+            "Interpretation: these are observed EVM balance changes for explicitly tracked addresses.",
+            "They do not establish common beneficial ownership or a universal profit figure.",
+        )
+    )
+    return tuple(lines)
+
+
 @app.command("block")
 def show_block(
     number: Annotated[int, typer.Argument(min=0, help="Ethereum block number")],
@@ -690,10 +915,17 @@ def show_sandwiches(
             help="Execute unchanged victims on independent observed/front-omitted Anvil forks",
         ),
     ] = False,
+    flows: Annotated[
+        bool,
+        typer.Option(
+            "--flows",
+            help="Replay the observed full cycle and show tracked-address asset balances",
+        ),
+    ] = False,
 ) -> None:
     """Display conservative strict sandwich candidates in a block."""
     try:
-        if evm_counterfactual:
+        if evm_counterfactual or flows:
             upstream_url = rpc_url_from_env()
             rpc = EthereumRPC(upstream_url)
         else:
@@ -703,7 +935,7 @@ def show_sandwiches(
         result = detect_strict_sandwich_candidates(swap_analysis.swaps)
         economics_analysis = (
             analyze_observed_sandwich_economics(result.candidates, swap_analysis.receipts)
-            if economics or counterfactual or evm_counterfactual
+            if economics or counterfactual or evm_counterfactual or flows
             else None
         )
         counterfactual_analysis = (
@@ -711,9 +943,10 @@ def show_sandwiches(
             if counterfactual or evm_counterfactual
             else None
         )
-        if evm_counterfactual:
+        if evm_counterfactual or flows:
             assert upstream_url is not None
             block = rpc.get_block(number)
+        if evm_counterfactual:
             evm_results = tuple(
                 execute_front_omission_counterfactual(
                     rpc,
@@ -727,6 +960,22 @@ def show_sandwiches(
             )
         else:
             evm_results = ()
+        if flows:
+            assert upstream_url is not None
+            assert economics_analysis is not None
+            flow_results = tuple(
+                execute_observed_cycle_attribution(
+                    rpc,
+                    upstream_url,
+                    block,
+                    swap_analysis.receipts,
+                    candidate,
+                    economics_analysis.candidates[index],
+                )
+                for index, candidate in enumerate(result.candidates[:limit])
+            )
+        else:
+            flow_results = ()
     except (BlockScopeError, ValueError) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1) from exc
@@ -743,6 +992,9 @@ def show_sandwiches(
                 typer.echo(line)
         if evm_counterfactual:
             for line in _evm_counterfactual_lines(evm_results[index - 1]):
+                typer.echo(line)
+        if flows:
+            for line in _observed_attribution_lines(flow_results[index - 1]):
                 typer.echo(line)
         typer.echo()
     remaining = len(result.candidates) - limit
@@ -825,6 +1077,14 @@ def show_sandwiches(
         typer.echo(f"Experiments executed: {len(evm_results)}")
         typer.echo(f"Reliable experiments: {reliable_count}")
         typer.echo(f"Unreliable experiments: {len(evm_results) - reliable_count}")
+    if flows:
+        reliable_count = sum(item.reliable for item in flow_results)
+        partial_count = sum(not item.checkpoint_reads_complete for item in flow_results)
+        typer.echo("\nObserved full-cycle attribution diagnostics")
+        typer.echo(f"Attributions executed: {len(flow_results)}")
+        typer.echo(f"Reliable attributions: {reliable_count}")
+        typer.echo(f"Unreliable attributions: {len(flow_results) - reliable_count}")
+        typer.echo(f"Partial checkpoint sets: {partial_count}")
 
 
 if __name__ == "__main__":

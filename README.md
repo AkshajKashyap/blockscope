@@ -2,7 +2,7 @@
 
 BlockScope is the foundation of a counterfactual Ethereum execution and MEV analysis engine.
 
-## Current status: Milestone 8
+## Current status: Milestone 9
 
 BlockScope currently fetches historical Ethereum blocks and transaction receipts over JSON-RPC,
 normalizes their transactions and logs into provider-independent typed models, and prints concise
@@ -28,6 +28,8 @@ replays an unchanged target transaction and the complete preceding block prefix 
 state, then compares normalized receipt and pair evidence. Its **front-omitted forked-EVM
 counterfactual** runs the observed branch and an otherwise identical branch without the detected
 front transaction in two independent fresh forks, while leaving the victim request unchanged.
+BlockScope can additionally replay the complete observed front/victim/back cycle and retain exact
+native ETH and candidate-token balances for a narrow, explicitly defined tracked-address set.
 
 Matching the event signature identifies Uniswap V2-compatible events; it does not prove that a
 pair was deployed by the official Uniswap factory. BlockScope queries and displays the pair's
@@ -83,6 +85,7 @@ blockscope sandwiches 17000000 --limit 20
 blockscope sandwiches 17000000 --economics
 blockscope sandwiches 17000000 --counterfactual
 blockscope sandwiches 17000000 --evm-counterfactual
+blockscope sandwiches 17000000 --flows
 blockscope replay 17000000 1
 ```
 
@@ -285,11 +288,13 @@ otherwise exact pair-execution comparison. Likewise, target results are not labe
 any prefix transaction fails the normalized status/log comparison. Receipt equality is useful
 evidence, not proof that every unlogged internal state change is identical.
 
-The three replay concepts are intentionally distinct:
+The replay and attribution concepts are intentionally distinct:
 
 - Mathematical V2 replay applies the canonical integer AMM formula to fixed pair-level inputs.
 - Observed EVM replay executes the unchanged historical prefix and target in Anvil.
 - Front-omitted EVM replay executes the unchanged target after removing one historical transaction.
+- Observed full-cycle attribution executes through the unchanged back transaction and reads actual
+  address balances; it does not alter history.
 
 Milestone 7 does not skip the front transaction, replay the back leg, alter calldata or state,
 calculate counterfactual wallet output, or claim support for arbitrary historical transactions.
@@ -325,6 +330,49 @@ remain unequal or uncontrollable. Those differences and all failed controls are 
 out of an “equivalent” claim. Even a reliable transaction-level result is not proof of user intent,
 wallet receipts, transaction-wide profit or loss, mempool visibility, or causal attribution beyond
 this specific front-omission intervention.
+
+## Observed full-cycle address attribution
+
+`blockscope sandwiches N --flows` creates a fresh Anvil fork from `N - 1` and submits every
+historical transaction through the candidate's back transaction unchanged and in canonical order.
+Front, every victim, and back receipt semantics, V2 Swap/Sync evidence, and gas usage are checked
+against history. Attribution is reliable only when those candidate legs and the complete required
+prefix reproduce, candidate token identities are known, all checkpoint reads succeed, and the
+pending final state agrees with the mined final state.
+
+Transactions remain FIFO-queued and are explicitly mined together once, preserving the historical
+one-block execution context. Before-front S0 balances are read from the latest fork state. After
+front S1, after-victim S2, and after-back S3 are read from the cumulative `pending` state after the
+corresponding transaction is submitted. S3 is read again from `latest` after mining and must match.
+This avoids changing block number or timestamp merely to obtain checkpoints.
+
+The tracked-address set is deliberately narrow: the outer transaction sender, front transaction
+recipient when present, and back transaction recipient when present, deduplicated without regard
+to case. Relationships are displayed literally. A recipient contract is not labeled as owned by
+the sender or by a searcher. For each tracked address and checkpoint, BlockScope reads native ETH
+with `eth_getBalance` and raw token0/token1 balances with standard `balanceOf` calls against local
+Anvil state. Metadata is only for display. Failed reads remain unavailable rather than becoming
+fabricated zeroes.
+
+Exact S1-S0, S2-S1, S3-S2, and S3-S0 signed deltas are shown separately for ETH, token0, and
+token1. Different assets are never silently netted. The outer sender's front/back native deltas
+are also displayed beside actual replay gas expense and transaction `value`; any residual is
+evidence of additional native movement, not an inferred bribe, refund, or other causal label.
+
+BlockScope decodes only the standard `Transfer(address,address,uint256)` event shape and retains
+candidate-token Transfers from the observed front and back receipts, marking those that touch a
+tracked address. Endpoint balances are authoritative for this analysis: non-standard tokens may
+omit or misuse Transfer logs, and logs do not expose native internal calls. Pair-level cycle
+arithmetic and tracked-address endpoint changes are printed side by side without assuming that
+they must reconcile through the limited address set.
+
+Address-level balance evidence is stronger than Pair Swap arithmetic because it observes actual
+EVM state for named addresses. It is still not beneficial-owner profit: BlockScope does not infer
+common ownership, attribute all intermediate addresses, trace internal calls, or convert between
+ETH and tokens. The historical back transaction is intentionally not executed in the
+front-omitted counterfactual branch. Because front and back share a sender, omitting the front can
+remove the nonce predecessor required by the unchanged historical back; BlockScope does not rewrite
+the nonce, insert a dummy transaction, or otherwise force execution.
 
 ## Development
 

@@ -11,7 +11,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Self, TextIO
+from typing import Any, Protocol, Self, TextIO
 
 import httpx
 
@@ -774,6 +774,36 @@ class AnvilFork:
         except ValueError as exc:
             raise ReplayRPCError(f"Anvil returned a malformed chain ID: {result!r}") from exc
 
+    def get_balance(self, address: str, block_tag: str = "latest") -> int:
+        """Read an exact native balance at a local fork state tag."""
+        result = self._call("eth_getBalance", [address, block_tag])
+        if isinstance(result, bool) or not isinstance(result, (int, str)):
+            raise ReplayRPCError("Anvil returned a malformed native balance")
+        try:
+            return int(result, 0) if isinstance(result, str) else result
+        except ValueError as exc:
+            raise ReplayRPCError(
+                f"Anvil returned a malformed native balance: {result!r}"
+            ) from exc
+
+    def call_contract(
+        self,
+        contract_address: str,
+        call_data: str,
+        block_tag: str = "latest",
+    ) -> bytes:
+        """Execute a read-only local call against latest or cumulative pending state."""
+        result = self._call(
+            "eth_call",
+            [{"to": contract_address, "data": call_data}, block_tag],
+        )
+        if not isinstance(result, str) or not result.startswith("0x"):
+            raise ReplayRPCError("Anvil returned malformed eth_call data")
+        try:
+            return bytes.fromhex(result[2:])
+        except ValueError as exc:
+            raise ReplayRPCError("Anvil returned non-hex eth_call data") from exc
+
 
 def _not_attempted_result(
     transaction: Transaction,
@@ -815,6 +845,21 @@ class ReplayBranchExecution:
         return self.transactions[-1]
 
 
+class ReplayObserver(Protocol):
+    """Read-only hooks around one-block replay submission and mining."""
+
+    def before_submissions(self, fork: AnvilFork) -> None: ...
+
+    def after_submission(
+        self,
+        fork: AnvilFork,
+        position: int,
+        transaction: Transaction,
+    ) -> None: ...
+
+    def after_mine(self, fork: AnvilFork) -> None: ...
+
+
 def execute_replay_plan(
     upstream_rpc_url: str,
     plan: ReplayPlan,
@@ -823,6 +868,7 @@ def execute_replay_plan(
     hardfork: str,
     *,
     anvil_executable: str = "anvil",
+    observer: ReplayObserver | None = None,
 ) -> ReplayBranchExecution:
     """Execute a plan on one new Anvil fork without nonce, balance, or state mutation."""
     if len(historical_receipts) != len(plan.transactions):
@@ -855,16 +901,22 @@ def execute_replay_plan(
         backend_version = fork.backend_version
         backend_process_id = fork.process_id
         setup_warnings.extend(fork.configure_next_block(historical_context))
+        if observer is not None:
+            observer.before_submissions(fork)
         for position, request in enumerate(requests):
             try:
                 local_hash, warnings = fork.send_impersonated(request)
                 local_hashes.append(local_hash)
                 setup_warnings.extend(warnings)
+                if observer is not None:
+                    observer.after_submission(fork, position, plan.transactions[position])
             except ReplayError as exc:
                 submission_error = (position, str(exc))
                 break
         if local_hashes:
             fork.mine()
+            if observer is not None:
+                observer.after_mine(fork)
             for position, local_hash in enumerate(local_hashes):
                 try:
                     replay_receipts[position] = fork.get_receipt(local_hash)

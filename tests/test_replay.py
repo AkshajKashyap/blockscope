@@ -376,6 +376,24 @@ def test_context_controls_and_manual_mining_do_not_mutate_accounts_or_storage() 
     assert "anvil_setStorageAt" not in methods
 
 
+def test_local_balance_and_contract_calls_decode_exact_rpc_values() -> None:
+    rpc = Mock()
+    rpc.call.side_effect = ("0x1234", "0x" + (99).to_bytes(32).hex())
+    fork = AnvilFork("https://rpc.example", 99, 1)
+    fork._rpc = rpc
+
+    assert fork.get_balance("0x" + "11" * 20, "pending") == 0x1234
+    assert fork.call_contract("0x" + "22" * 20, "0x1234", "pending") == (99).to_bytes(32)
+    assert rpc.call.call_args_list[0].args == (
+        "eth_getBalance",
+        ["0x" + "11" * 20, "pending"],
+    )
+    assert rpc.call.call_args_list[1].args == (
+        "eth_call",
+        [{"to": "0x" + "22" * 20, "data": "0x1234"}, "pending"],
+    )
+
+
 def test_impersonated_submission_preserves_request_and_stops_impersonating() -> None:
     request = transaction_replay_request(transaction(0))
     rpc = Mock()
