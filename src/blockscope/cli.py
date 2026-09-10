@@ -17,7 +17,13 @@ from blockscope.economics import (
     ObservedSandwichEconomics,
     analyze_observed_sandwich_economics,
 )
-from blockscope.rpc import BlockScopeError, EthereumRPC
+from blockscope.replay import (
+    ObservedReplayReport,
+    PairSwapEvidence,
+    TransactionReplayResult,
+    replay_observed_transaction,
+)
+from blockscope.rpc import BlockScopeError, EthereumRPC, rpc_url_from_env
 from blockscope.sandwiches import SandwichCandidate, detect_strict_sandwich_candidates
 from blockscope.types import Transaction
 from blockscope.uniswap_v2 import (
@@ -31,7 +37,7 @@ app = typer.Typer(no_args_is_help=True)
 
 @app.callback()
 def main() -> None:
-    """Inspect Ethereum blocks for future counterfactual analysis."""
+    """Inspect Ethereum blocks, MEV evidence, and execution replays."""
 
 
 def _short(value: str, length: int = 12) -> str:
@@ -282,6 +288,151 @@ def _counterfactual_lines(result: FixedInputCounterfactual) -> tuple[str, ...]:
     return tuple(lines)
 
 
+def _receipt_status(status: int | None) -> str:
+    if status == 1:
+        return "success"
+    if status == 0:
+        return "reverted"
+    return "unavailable"
+
+
+def _pair_replay_lines(label: str, evidence: tuple[PairSwapEvidence, ...]) -> tuple[str, ...]:
+    if not evidence:
+        return (f"    {label}: no supported V2 Swap/Sync evidence",)
+    lines: list[str] = []
+    for index, swap in enumerate(evidence, start=1):
+        reserves = (
+            "unavailable"
+            if swap.post_reserves is None
+            else f"({swap.post_reserves.reserve0}, {swap.post_reserves.reserve1})"
+        )
+        lines.append(
+            f"    {label} pair event {index}: pair={swap.pair_address} "
+            f"direction={swap.direction} in0={swap.amount0_in} in1={swap.amount1_in} "
+            f"out0={swap.amount0_out} out1={swap.amount1_out} post={reserves}"
+        )
+    return tuple(lines)
+
+
+def _transaction_replay_lines(
+    result: TransactionReplayResult,
+    *,
+    target: bool,
+) -> tuple[str, ...]:
+    heading = "Target" if target else "Prefix"
+    replay_status = (
+        "unavailable"
+        if result.replay_receipt is None
+        else _receipt_status(result.replay_receipt.status)
+    )
+    replay_gas = (
+        "unavailable" if result.replay_receipt is None else str(result.replay_receipt.gas_used)
+    )
+    lines = [
+        f"{heading} #{result.historical_transaction.transaction_index}",
+        f"  Historical hash: {result.historical_transaction.hash}",
+        f"  Replay hash:     {result.local_transaction_hash or 'unavailable'}",
+        f"  Submission:      {result.submission_status.value}",
+        f"  Historical status: {_receipt_status(result.historical_receipt.status)}",
+        f"  Replay status:     {replay_status}",
+        f"  Historical gas used: {result.historical_receipt.gas_used}",
+        f"  Replay gas used:     {replay_gas}",
+    ]
+    if result.error is not None:
+        lines.append(f"  Replay error: {result.error}")
+    comparison = result.comparison
+    if comparison is None:
+        lines.append("  Semantic comparison: unavailable")
+        return tuple(lines)
+    lines.extend(
+        (
+            f"  Status comparison:       {comparison.status.value}",
+            f"  Receipt-log comparison:  {comparison.semantic_logs.value}",
+            f"  Pair Swap comparison:    {comparison.pair_swaps.value}",
+            f"  Post-Sync comparison:    {comparison.post_sync_reserves.value}",
+            f"  Gas comparison:          {comparison.gas_used.value}",
+            (
+                "  Receipt semantics exact: "
+                f"{'yes' if comparison.receipt_semantics_exact_match else 'no'}"
+            ),
+            (
+                "  Pair execution exact:    "
+                f"{'yes' if comparison.pair_execution_exact_match else 'no'}"
+            ),
+            *_pair_replay_lines("Historical", comparison.historical_pair_evidence),
+            *_pair_replay_lines("Replay", comparison.replay_pair_evidence),
+        )
+    )
+    lines.extend(f"  Mismatch: {reason}" for reason in comparison.mismatches)
+    return tuple(lines)
+
+
+def _observed_replay_lines(report: ObservedReplayReport) -> tuple[str, ...]:
+    environment = report.environment
+    historical_context = environment.historical
+    local_context = environment.local
+    lines = [
+        "Observed EVM Replay",
+        f"Block:       {report.plan.block_number}",
+        f"Target tx:   #{report.plan.target_transaction_index}",
+        f"Forked from: {report.plan.fork_block_number}",
+        f"Backend:     {report.backend} ({report.backend_version})",
+        f"Hardfork:    {report.configured_hardfork}",
+        "",
+        "Replay environment",
+        (
+            "  Historical: "
+            f"number={historical_context.number} timestamp={historical_context.timestamp} "
+            f"base_fee={historical_context.base_fee_per_gas} "
+            f"coinbase={historical_context.coinbase} gas_limit={historical_context.gas_limit} "
+            f"prevrandao={historical_context.prevrandao} "
+            f"difficulty={historical_context.difficulty} chain_id={historical_context.chain_id}"
+        ),
+        (
+            "  Local: unavailable"
+            if local_context is None
+            else (
+                "  Local:      "
+                f"number={local_context.number} timestamp={local_context.timestamp} "
+                f"base_fee={local_context.base_fee_per_gas} "
+                f"coinbase={local_context.coinbase} gas_limit={local_context.gas_limit} "
+                f"prevrandao={local_context.prevrandao} "
+                f"difficulty={local_context.difficulty} chain_id={local_context.chain_id}"
+            )
+        ),
+        f"  Matched fields: {', '.join(environment.matched_fields) or 'none'}",
+        f"  Mismatched fields: {', '.join(environment.mismatched_fields) or 'none'}",
+        f"  Unavailable fields: {', '.join(environment.unavailable_fields) or 'none'}",
+    ]
+    lines.extend(f"  Setup warning: {warning}" for warning in environment.setup_warnings)
+    lines.append("")
+    for result in report.prefix:
+        lines.extend(_transaction_replay_lines(result, target=False))
+        lines.append("")
+    lines.extend(_transaction_replay_lines(report.target, target=True))
+    lines.extend(
+        (
+            "",
+            "Overall comparison",
+            (
+                "  Prefix receipt evidence exact: "
+                f"{'yes' if report.prefix_receipt_evidence_exact else 'no'}"
+            ),
+            f"  Target state reliable: {'yes' if report.target_state_reliable else 'no'}",
+            (
+                "  Target pair execution exact: "
+                f"{'yes' if report.pair_execution_exact_match else 'no'}"
+            ),
+            "Replay mechanics/deviations",
+            *(f"  - {deviation}" for deviation in report.replay_deviations),
+            "This is observed historical replay; no transaction was removed or altered.",
+            "Exact pair execution means matching status, V2 Swap semantics, and post-Sync reserves.",
+            "It does not prove arbitrary hidden state changes match beyond compared receipt evidence.",
+        )
+    )
+    return tuple(lines)
+
+
 @app.command("block")
 def show_block(
     number: Annotated[int, typer.Argument(min=0, help="Ethereum block number")],
@@ -355,6 +506,31 @@ def show_swaps(
         f"{diagnostics.invalid_reserve_reconstructions}"
     )
     typer.echo(f"Metadata lookup failures: {diagnostics.metadata_lookup_failures}")
+
+
+@app.command("replay")
+def show_replay(
+    number: Annotated[int, typer.Argument(min=1, help="Historical Ethereum block number")],
+    transaction_index: Annotated[
+        int,
+        typer.Argument(min=0, help="Target transaction index within the block"),
+    ],
+) -> None:
+    """Replay a target and its complete block prefix on an observed Anvil fork."""
+    try:
+        upstream_url = rpc_url_from_env()
+        report = replay_observed_transaction(
+            EthereumRPC(upstream_url),
+            upstream_url,
+            number,
+            transaction_index,
+        )
+    except (BlockScopeError, ValueError, TypeError) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    for line in _observed_replay_lines(report):
+        typer.echo(line)
 
 
 @app.command("sandwiches")

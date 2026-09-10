@@ -7,6 +7,7 @@ def transaction_data(**overrides: object) -> dict[str, object]:
         "transactionIndex": 0,
         "from": "0x" + "22" * 20,
         "to": "0x" + "33" * 20,
+        "nonce": 7,
         "value": 123,
         "gas": 21_000,
         "gasPrice": 30_000_000_000,
@@ -26,6 +27,9 @@ def block_data(**overrides: object) -> dict[str, object]:
         "gasUsed": 15_000_000,
         "gasLimit": 30_000_000,
         "baseFeePerGas": 25_000_000_000,
+        "miner": "0x" + "44" * 20,
+        "difficulty": 0,
+        "mixHash": bytes.fromhex("cc" * 32),
         "transactions": [transaction_data()],
     }
     data.update(overrides)
@@ -40,8 +44,12 @@ def test_converts_representative_rpc_block_to_models() -> None:
     assert block.parent_hash == "0x" + "bb" * 32
     assert block.gas_used == 15_000_000
     assert block.base_fee_per_gas == 25_000_000_000
+    assert block.miner_address == "0x" + "44" * 20
+    assert block.difficulty == 0
+    assert block.mix_hash == "0x" + "cc" * 32
     assert len(block.transactions) == 1
     assert block.transactions[0].input_data == "0x"
+    assert block.transactions[0].nonce == 7
     assert type(block.raw) is dict
 
 
@@ -51,6 +59,13 @@ def test_converts_eip_1559_fee_fields() -> None:
         gasPrice=28_000_000_000,
         maxFeePerGas=40_000_000_000,
         maxPriorityFeePerGas=2_000_000_000,
+        chainId=1,
+        accessList=[
+            {
+                "address": "0x" + "55" * 20,
+                "storageKeys": ["0x" + "66" * 32],
+            }
+        ],
     )
 
     converted = Block.from_rpc(block_data(transactions=[transaction])).transactions[0]
@@ -59,6 +74,9 @@ def test_converts_eip_1559_fee_fields() -> None:
     assert converted.gas_price == 28_000_000_000
     assert converted.max_fee_per_gas == 40_000_000_000
     assert converted.max_priority_fee_per_gas == 2_000_000_000
+    assert converted.chain_id == 1
+    assert converted.access_list[0].address == "0x" + "55" * 20
+    assert converted.access_list[0].storage_keys == ("0x" + "66" * 32,)
 
 
 def test_converts_legacy_fee_fields() -> None:

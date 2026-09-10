@@ -4,6 +4,7 @@ from typer.testing import CliRunner
 
 from blockscope.cli import app
 from blockscope.counterfactual import CounterfactualAnalysis, CounterfactualDiagnostics
+from blockscope.replay import AnvilUnavailableError
 from blockscope.types import Block, Transaction
 from blockscope.uniswap_v2 import (
     BlockSwapAnalysis,
@@ -173,3 +174,20 @@ def test_sandwiches_counterfactual_flag_runs_replay_and_includes_observed_contex
     assert "Counterfactual diagnostics" in result.output
     assert "Canonical provenance established: 0" in result.output
     analyze_counterfactuals.assert_called_once_with(rpc, 17_000_000, ())
+
+
+def test_replay_command_reports_missing_anvil_actionably() -> None:
+    with (
+        patch.dict("os.environ", {"ETH_RPC_URL": "https://rpc.example"}, clear=True),
+        patch(
+            "blockscope.cli.replay_observed_transaction",
+            side_effect=AnvilUnavailableError(
+                "Anvil executable was not found; verify with: anvil --version"
+            ),
+        ),
+    ):
+        result = runner.invoke(app, ["replay", "17000000", "1"])
+
+    assert result.exit_code == 1
+    assert "Anvil executable was not found" in result.output
+    assert "anvil --version" in result.output

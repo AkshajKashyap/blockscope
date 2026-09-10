@@ -51,8 +51,26 @@ def _plain(value: Any) -> Any:
 
 
 @dataclass(frozen=True, slots=True)
+class AccessListEntry:
+    """One EIP-2930 access-list account and its storage keys."""
+
+    address: str
+    storage_keys: tuple[str, ...]
+
+    @classmethod
+    def from_rpc(cls, data: Mapping[str, Any]) -> "AccessListEntry":
+        return cls(
+            address=_hex(data["address"], field_name="access-list address"),
+            storage_keys=tuple(
+                _hex(key, field_name="access-list storage key")
+                for key in data.get("storageKeys", ())
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class Transaction:
-    """Transaction fields needed for block inspection and future decoding."""
+    """Normalized transaction execution fields plus the complete RPC object."""
 
     hash: str
     transaction_index: int
@@ -65,6 +83,9 @@ class Transaction:
     max_priority_fee_per_gas: int | None
     input_data: str
     transaction_type: int | None = None
+    nonce: int | None = None
+    chain_id: int | None = None
+    access_list: tuple[AccessListEntry, ...] = ()
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
@@ -89,6 +110,11 @@ class Transaction:
             ),
             input_data=_hex(data.get("input", "0x"), field_name="transaction input"),
             transaction_type=_optional_integer(data.get("type"), field_name="transaction type"),
+            nonce=_integer(data["nonce"], field_name="transaction nonce"),
+            chain_id=_optional_integer(data.get("chainId"), field_name="transaction chain ID"),
+            access_list=tuple(
+                AccessListEntry.from_rpc(entry) for entry in data.get("accessList", ())
+            ),
             raw=_plain(data),
         )
 
@@ -105,6 +131,9 @@ class Block:
     gas_limit: int
     base_fee_per_gas: int | None
     transactions: tuple[Transaction, ...]
+    miner_address: str | None = None
+    difficulty: int | None = None
+    mix_hash: str | None = None
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
 
     @classmethod
@@ -125,6 +154,17 @@ class Block:
                 data.get("baseFeePerGas"), field_name="block base fee per gas"
             ),
             transactions=tuple(Transaction.from_rpc(transaction) for transaction in transactions),
+            miner_address=(
+                None
+                if data.get("miner") is None
+                else _hex(data["miner"], field_name="block miner")
+            ),
+            difficulty=_optional_integer(data.get("difficulty"), field_name="block difficulty"),
+            mix_hash=(
+                None
+                if data.get("mixHash") is None
+                else _hex(data["mixHash"], field_name="block mix hash")
+            ),
             raw=_plain(data),
         )
 

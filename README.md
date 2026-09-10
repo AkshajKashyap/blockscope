@@ -2,7 +2,7 @@
 
 BlockScope is the foundation of a counterfactual Ethereum execution and MEV analysis engine.
 
-## Current status: Milestone 6
+## Current status: Milestone 7
 
 BlockScope currently fetches historical Ethereum blocks and transaction receipts over JSON-RPC,
 normalizes their transactions and logs into provider-independent typed models, and prints concise
@@ -23,10 +23,16 @@ can also compute a **fixed-input pair-level counterfactual**. It removes the fro
 effect, holds each victim's observed pair input fixed, and quotes the resulting output with the
 canonical V2 integer formula. This is an AMM calculation, not arbitrary transaction replay.
 
+BlockScope also has an **observed EVM replay baseline** backed by an external Anvil process. It
+replays an unchanged target transaction and the complete preceding block prefix from historical
+state, then compares normalized receipt and pair evidence. This precedes any forked-EVM
+counterfactual because altered history is meaningful only after observed execution can be checked.
+
 Matching the event signature identifies Uniswap V2-compatible events; it does not prove that a
 pair was deployed by the official Uniswap factory. BlockScope queries and displays the pair's
 actual `factory()` address without using it as a detector filter. Generalized MEV classification,
-transaction tracing, wallet-level profit calculation, and full EVM replay are **not implemented**.
+transaction tracing, wallet-level profit calculation, and arbitrary historical EVM replay are
+**not implemented**.
 
 ## Setup
 
@@ -35,6 +41,13 @@ BlockScope requires Python 3.12 or newer. Create a virtual environment and insta
 ```bash
 python -m venv .venv
 .venv/bin/pip install -e '.[dev]'
+```
+
+Observed EVM replay additionally requires the external Foundry `anvil` executable on `PATH`.
+BlockScope never installs it or changes shell configuration. Verify it separately with:
+
+```bash
+anvil --version
 ```
 
 Configure a standard environment variable with an Ethereum JSON-RPC endpoint. BlockScope does
@@ -68,6 +81,7 @@ blockscope sandwiches 17000000
 blockscope sandwiches 17000000 --limit 20
 blockscope sandwiches 17000000 --economics
 blockscope sandwiches 17000000 --counterfactual
+blockscope replay 17000000 1
 ```
 
 `--counterfactual` also shows the observed economics, so `--economics` is not required alongside
@@ -228,6 +242,55 @@ other unusual tokens can make pair and wallet flows differ. This result is not f
 does not establish whether the original transaction would still execute, does not replay the back
 leg, and is not automatically victim loss. Counterfactual output deltas are never combined with
 the outer transactions' gas fees.
+
+## Observed forked-EVM replay
+
+`blockscope replay N V` asks whether transaction index `V` can reproduce its observed receipt and
+V2 pair outcome when executed without alteration. The Anvil fork always begins at `N - 1`, because
+state at block `N` already includes every transaction in the block. BlockScope selects transactions
+`#0` through `#(V-1)` as the complete prefix and queues the prefix plus target in canonical order.
+With automatic mining disabled and FIFO ordering requested, one explicit mine places them together
+in local block `N`; this preserves the common block number and context rather than spreading them
+across unrelated blocks.
+
+Historical senders are submitted with Anvil account impersonation, so original private keys are
+not required. BlockScope carries forward the observed recipient, nonce, value, calldata, gas limit,
+transaction type, chain ID, access list, and the applicable legacy or EIP-1559 fee fields. It does
+not reset nonces, top up balances, substitute Anvil's rich accounts, or write contract storage. A
+nonce or balance failure is therefore replay evidence, not something silently bypassed.
+
+The target block number, timestamp, base fee, gas limit, fee recipient, prevrandao, difficulty, and
+chain ID are recorded for historical/local comparison. BlockScope attempts Anvil controls for the
+fields the backend exposes and reports failed controls and mismatches. The EVM hardfork is inferred
+from Ethereum header markers and explicitly pinned (for example, Paris for block `17000000`). This
+does not guarantee every header-derived or client-specific execution detail is identical, and such
+differences remain visible rather than being folded into an “exact” label.
+
+Impersonated `eth_sendTransaction` does not replay the original signature and may create a different
+transaction hash. Both hashes are retained, but hash equality and block-global log indexes are not
+reproduction criteria. Receipt logs are compared by address, topics, data, and within-transaction
+order after removing local bookkeeping. For the strongest current V2 result,
+`pair_execution_exact_match` requires:
+
+```text
+same success/revert status
+same ordered V2 pair address, direction, and Swap amounts
+same adjacent post-Swap Sync reserves
+```
+
+Gas usage is compared independently: a gas mismatch remains explicit but does not weaken an
+otherwise exact pair-execution comparison. Likewise, target results are not labeled reliable when
+any prefix transaction fails the normalized status/log comparison. Receipt equality is useful
+evidence, not proof that every unlogged internal state change is identical.
+
+The three replay concepts are intentionally distinct:
+
+- Mathematical V2 replay applies the canonical integer AMM formula to fixed pair-level inputs.
+- Observed EVM replay executes the unchanged historical prefix and target in Anvil.
+- Future counterfactual EVM replay will alter history only after this observed baseline is proven.
+
+Milestone 7 does not skip the front transaction, replay the back leg, alter calldata or state,
+calculate counterfactual wallet output, or claim support for arbitrary historical transactions.
 
 ## Development
 
