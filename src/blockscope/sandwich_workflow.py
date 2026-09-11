@@ -20,6 +20,10 @@ from blockscope.observed_attribution import (
     ObservedCycleAttribution,
     execute_observed_cycle_attribution,
 )
+from blockscope.observed_trace import (
+    ObservedCandidateTraceAttribution,
+    execute_observed_trace_attribution,
+)
 from blockscope.rpc import EthereumRPC
 from blockscope.sandwiches import (
     SandwichCandidate,
@@ -38,6 +42,7 @@ class SandwichWorkflowOptions:
     mathematical_counterfactual: bool = False
     evm_counterfactual: bool = False
     flows: bool = False
+    trace_flows: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +54,7 @@ class CandidateAnalysis:
     mathematical_counterfactual: FixedInputCounterfactual | None
     evm_counterfactual: CounterfactualEVMExecution | None
     attribution: ObservedCycleAttribution | None
+    trace_attribution: ObservedCandidateTraceAttribution | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +77,7 @@ def analyze_sandwich_workflow(
     """Run the established analyses once and align evidence by candidate position."""
     if options.limit < 0:
         raise ValueError("candidate display limit must be non-negative")
-    needs_fork = options.evm_counterfactual or options.flows
+    needs_fork = options.evm_counterfactual or options.flows or options.trace_flows
     if needs_fork and upstream_rpc_url is None:
         raise ValueError("fork-backed sandwich analysis requires an upstream RPC URL")
 
@@ -82,6 +88,7 @@ def analyze_sandwich_workflow(
         or options.mathematical_counterfactual
         or options.evm_counterfactual
         or options.flows
+        or options.trace_flows
     )
     economics = (
         analyze_observed_sandwich_economics(sandwiches.candidates, swaps.receipts)
@@ -124,10 +131,25 @@ def analyze_sandwich_workflow(
                 candidate,
                 candidate_economics,
             )
-            if options.flows
+            if (options.flows or options.trace_flows)
             and upstream_rpc_url is not None
             and block is not None
             and candidate_economics is not None
+            else None
+        )
+        trace_attribution = (
+            execute_observed_trace_attribution(
+                rpc,
+                upstream_rpc_url,
+                block,
+                swaps.receipts,
+                candidate,
+                attribution,
+            )
+            if options.trace_flows
+            and upstream_rpc_url is not None
+            and block is not None
+            and attribution is not None
             else None
         )
         aligned.append(
@@ -137,6 +159,7 @@ def analyze_sandwich_workflow(
                 candidate_mathematical,
                 evm_result,
                 attribution,
+                trace_attribution,
             )
         )
     return SandwichWorkflowResult(

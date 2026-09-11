@@ -855,6 +855,25 @@ class AnvilFork:
         except ValueError as exc:
             raise ReplayRPCError("Anvil returned non-hex eth_call data") from exc
 
+    def debug_trace_transaction(self, transaction_hash: str) -> Any:
+        """Request Anvil's nested callTracer output for one local transaction."""
+        try:
+            return self._call(
+                "debug_traceTransaction",
+                [transaction_hash, {"tracer": "callTracer"}],
+            )
+        except ReplayRPCError as exc:
+            detail = redact_rpc_url_in_text(str(exc), self.upstream_rpc_url)
+            raise ReplayRPCError(detail) from exc
+
+    def parity_trace_transaction(self, transaction_hash: str) -> Any:
+        """Request Anvil's flat trace-address output as a call-tree fallback."""
+        try:
+            return self._call("trace_transaction", [transaction_hash])
+        except ReplayRPCError as exc:
+            detail = redact_rpc_url_in_text(str(exc), self.upstream_rpc_url)
+            raise ReplayRPCError(detail) from exc
+
 
 def _not_attempted_result(
     transaction: Transaction,
@@ -906,6 +925,7 @@ class ReplayObserver(Protocol):
         fork: AnvilFork,
         position: int,
         transaction: Transaction,
+        local_transaction_hash: str,
     ) -> None: ...
 
     def after_mine(self, fork: AnvilFork) -> None: ...
@@ -960,7 +980,12 @@ def execute_replay_plan(
                 local_hashes.append(local_hash)
                 setup_warnings.extend(warnings)
                 if observer is not None:
-                    observer.after_submission(fork, position, plan.transactions[position])
+                    observer.after_submission(
+                        fork,
+                        position,
+                        plan.transactions[position],
+                        local_hash,
+                    )
             except ReplayError as exc:
                 submission_error = (position, str(exc))
                 break

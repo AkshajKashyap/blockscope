@@ -23,6 +23,7 @@ def verify() -> None:
             mathematical_counterfactual=True,
             evm_counterfactual=True,
             flows=True,
+            trace_flows=True,
         ),
     )
     assert len(result.sandwiches.candidates) == 1
@@ -60,11 +61,40 @@ def verify() -> None:
     )
     assert recipient.full_cycle_delta.token0 == RECIPIENT_WETH_DELTA
     assert recipient.full_cycle_delta.token1 == 0
+    assert analysis.trace_attribution is not None
+    trace = analysis.trace_attribution
+    assert trace.reliable
+    assert trace.preferred_call_tracer_supported
+    assert not trace.fallback_used
+    assert trace.front.root_call is not None
+    assert trace.back.root_call is not None
+    assert trace.front.observed_reproduction_exact
+    assert trace.back.observed_reproduction_exact
+    assert trace.additional_token_contracts == ()
+    assert all(
+        row.residual_wei == 0
+        for transaction_trace in (trace.front, trace.back)
+        for row in transaction_trace.native_reconciliation
+    )
+    reconciliations = {
+        row.metadata.symbol.strip()
+        if row.metadata is not None and row.metadata.symbol is not None
+        else None: row
+        for row in trace.candidate_token_reconciliation
+    }
+    assert reconciliations["WETH"].full_transfer_delta == RECIPIENT_WETH_DELTA
+    assert reconciliations["WETH"].transfer_matches_pair
+    assert reconciliations["WETH"].transfer_matches_checkpoint
+    assert reconciliations["TRUMP"].full_transfer_delta == 0
+    assert reconciliations["TRUMP"].transfer_matches_pair
+    assert reconciliations["TRUMP"].transfer_matches_checkpoint
     print("block 17000000 golden fixture: PASS")
     print(f"observed victim output: {OBSERVED_VICTIM_OUTPUT}")
     print(f"front-omitted EVM output: {COUNTERFACTUAL_VICTIM_OUTPUT}")
     print("EVM minus mathematical: 0")
     print(f"observed recipient WETH delta: {RECIPIENT_WETH_DELTA}")
+    print(f"trace mode: {trace.trace_mode}")
+    print("front/back observed trace reconciliation: PASS")
 
 
 if __name__ == "__main__":

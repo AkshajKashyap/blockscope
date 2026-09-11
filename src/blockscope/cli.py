@@ -23,6 +23,10 @@ from blockscope.observed_attribution import (
     AddressCheckpoint,
     ObservedCycleAttribution,
 )
+from blockscope.observed_trace import (
+    ObservedCandidateTraceAttribution,
+    ObservedTransactionTraceAttribution,
+)
 from blockscope.replay import (
     ObservedReplayReport,
     PairSwapEvidence,
@@ -32,6 +36,7 @@ from blockscope.replay import (
 from blockscope.rpc import BlockScopeError, EthereumRPC, rpc_url_from_env
 from blockscope.sandwich_workflow import SandwichWorkflowOptions, analyze_sandwich_workflow
 from blockscope.sandwiches import SandwichCandidate
+from blockscope.tracing import CallFrame, flatten_call_frames, selector_label
 from blockscope.types import Transaction
 from blockscope.uniswap_v2 import (
     EnrichedUniswapV2Swap,
@@ -787,6 +792,163 @@ def _observed_attribution_lines(result: ObservedCycleAttribution) -> tuple[str, 
     return tuple(lines)
 
 
+def _trace_frame_line(frame: CallFrame) -> str:
+    indent = "    " + "  " * frame.path.count("/")
+    sender = "unavailable" if frame.from_address is None else _short(frame.from_address)
+    recipient = "unavailable" if frame.to_address is None else _short(frame.to_address)
+    details: list[str] = []
+    if frame.value_wei:
+        details.append(f"value={frame.value_wei} wei")
+    if frame.selector is not None:
+        label = selector_label(frame.selector)
+        details.append(frame.selector if label is None else f"{frame.selector} ({label})")
+    details.append("success" if frame.succeeded else f"revert/error={frame.error}")
+    suffix = " " + " ".join(details) if details else ""
+    return f"{indent}{frame.path} {frame.call_type} {sender} -> {recipient}{suffix}"
+
+
+def _transaction_trace_lines(
+    label: str,
+    result: ObservedTransactionTraceAttribution,
+) -> tuple[str, ...]:
+    root_identity = "unavailable"
+    if result.root_call is not None:
+        root_identity = f"{result.root_call.from_address} -> {result.root_call.to_address}"
+    lines = [
+        f"{label} #{result.transaction_index}",
+        f"  Historical hash: {result.historical_transaction_hash}",
+        f"  Local replay hash: {result.replay_transaction_hash}",
+        (
+            "  Exact observed-reproduction gate: "
+            f"{'PASS' if result.observed_reproduction_exact else 'FAIL'}"
+        ),
+        f"  Trace attribution reliable: {'yes' if result.trace_attribution_reliable else 'no'}",
+        f"  Root sender/recipient: {root_identity}",
+        f"  Call count: {result.call_count}",
+        f"  Maximum call depth (root=0): {result.maximum_call_depth}",
+        f"  Call types: {', '.join(result.call_types) if result.call_types else 'unavailable'}",
+        "  Execution call tree",
+    ]
+    if result.root_call is None:
+        lines.append("    unavailable")
+    else:
+        lines.extend(_trace_frame_line(frame) for frame in flatten_call_frames(result.root_call))
+    lines.append("  Realized native-value edges")
+    if result.native_transfers:
+        lines.extend(
+            (
+                f"    {transfer.call_path} {transfer.from_address} -> {transfer.to_address} "
+                f"value={transfer.value_wei} wei mechanism={transfer.mechanism}"
+            )
+            for transfer in result.native_transfers
+        )
+    else:
+        lines.append("    none")
+    lines.append("  Standard Transfer-shaped receipt events")
+    if result.transfer_events:
+        lines.extend(
+            (
+                f"    log {transfer.log_index}: token={transfer.token_address} "
+                f"{transfer.from_address} -> {transfer.to_address} "
+                f"amount={transfer.raw_amount}"
+            )
+            for transfer in result.transfer_events
+        )
+    else:
+        lines.append("    none")
+    lines.append("  Transfer-shaped token contracts")
+    if result.token_contracts:
+        for token in result.token_contracts:
+            symbol = token.metadata.symbol or "symbol unavailable"
+            decimals = "?" if token.metadata.decimals is None else token.metadata.decimals
+            category = "candidate pair asset" if token.candidate_pair_asset else "additional"
+            lines.append(
+                f"    {token.address} symbol={symbol} decimals={decimals} ({category})"
+            )
+    else:
+        lines.append("    none")
+    lines.extend(
+        (
+            "  Token-flow participants: "
+            + (", ".join(result.token_flow_participants) or "none"),
+            f"  Mint-shaped events: {result.mint_events}; burn-shaped events: {result.burn_events}",
+            f"  Malformed Transfer-shaped logs: {result.malformed_transfer_logs}",
+            "  Native endpoint reconciliation",
+        )
+    )
+    for reconciliation in result.native_reconciliation:
+        lines.append(
+            f"    {reconciliation.address}: checkpoint_delta="
+            f"{reconciliation.checkpoint_delta_wei} inflow={reconciliation.trace_inflow_wei} "
+            f"outflow={reconciliation.trace_outflow_wei} gas={reconciliation.gas_paid_wei} "
+            f"unexplained_residual={reconciliation.residual_wei} wei"
+        )
+    lines.extend(f"  Diagnostic: {diagnostic}" for diagnostic in result.diagnostics)
+    return tuple(lines)
+
+
+def _call_structure(root: CallFrame | None) -> tuple[tuple[str, int], ...] | None:
+    if root is None:
+        return None
+    return tuple((frame.call_type, len(frame.children)) for frame in flatten_call_frames(root))
+
+
+def _observed_trace_lines(result: ObservedCandidateTraceAttribution) -> tuple[str, ...]:
+    mode = "unavailable" if result.trace_mode is None else result.trace_mode.value
+    lines = [
+        "Observed Transaction-Wide Trace Attribution",
+        f"  Backend: {result.backend_version}",
+        f"  Trace RPC/mode: {mode}",
+        (
+            "  Preferred callTracer directly supported: "
+            f"{'yes' if result.preferred_call_tracer_supported else 'no'}"
+        ),
+        f"  Fallback used: {'yes' if result.fallback_used else 'no'}",
+        f"  Candidate trace attribution reliable: {'yes' if result.reliable else 'no'}",
+        *_transaction_trace_lines("Front", result.front),
+        *_transaction_trace_lines("Back", result.back),
+    ]
+    front_structure = _call_structure(result.front.root_call)
+    back_structure = _call_structure(result.back.root_call)
+    if front_structure is None or back_structure is None:
+        comparison = "unavailable"
+    elif front_structure == back_structure:
+        comparison = (
+            "same call-type/branching structure; targets and selectors compared separately above"
+        )
+    else:
+        comparison = "materially different call-type/branching structure"
+    lines.extend(("Front/back structural comparison", f"  {comparison}"))
+    lines.append("Candidate-token cross-evidence reconciliation")
+    for evidence in result.candidate_token_reconciliation:
+        symbol = (
+            evidence.metadata.symbol
+            if evidence.metadata is not None and evidence.metadata.symbol
+            else evidence.token_address
+        )
+        lines.append(
+            f"  {symbol}: front_transfer={evidence.front_transfer_delta:+d} "
+            f"back_transfer={evidence.back_transfer_delta:+d} "
+            f"full_transfer={evidence.full_transfer_delta:+d} "
+            f"pair_implied={evidence.pair_implied_delta} "
+            f"checkpoint={evidence.checkpoint_delta} "
+            f"transfer=pair={'yes' if evidence.transfer_matches_pair else 'no' if evidence.transfer_matches_pair is False else 'unavailable'} "
+            f"transfer=checkpoint={'yes' if evidence.transfer_matches_checkpoint else 'no' if evidence.transfer_matches_checkpoint is False else 'unavailable'}"
+        )
+    lines.extend(
+        (
+            "All Transfer-shaped token contracts: "
+            + (", ".join(item.address for item in result.all_token_contracts) or "none"),
+            "All token-flow participants: "
+            + (", ".join(result.all_token_flow_participants) or "none"),
+            "Additional Transfer-shaped token contracts: "
+            + (", ".join(result.additional_token_contracts) or "none"),
+        )
+    )
+    lines.extend(f"  Limitation: {limitation}" for limitation in result.limitations)
+    return tuple(lines)
+
+
 @app.command("block")
 def show_block(
     number: Annotated[int, typer.Argument(min=0, help="Ethereum block number")],
@@ -919,10 +1081,17 @@ def show_sandwiches(
             help="Replay the observed full cycle and show tracked-address asset balances",
         ),
     ] = False,
+    trace_flows: Annotated[
+        bool,
+        typer.Option(
+            "--trace-flows",
+            help="Trace observed front/back replays and reconcile transaction-wide flows",
+        ),
+    ] = False,
 ) -> None:
     """Display conservative strict sandwich candidates in a block."""
     try:
-        if evm_counterfactual or flows:
+        if evm_counterfactual or flows or trace_flows:
             upstream_url = rpc_url_from_env()
             rpc = EthereumRPC(upstream_url)
         else:
@@ -938,6 +1107,7 @@ def show_sandwiches(
                 counterfactual,
                 evm_counterfactual,
                 flows,
+                trace_flows,
             ),
         )
     except (BlockScopeError, ValueError) as exc:
@@ -960,6 +1130,9 @@ def show_sandwiches(
                 typer.echo(line)
         if analysis.attribution is not None:
             for line in _observed_attribution_lines(analysis.attribution):
+                typer.echo(line)
+        if analysis.trace_attribution is not None:
+            for line in _observed_trace_lines(analysis.trace_attribution):
                 typer.echo(line)
         typer.echo()
     result = workflow.sandwiches
@@ -1048,7 +1221,7 @@ def show_sandwiches(
         typer.echo(f"Experiments executed: {len(evm_results)}")
         typer.echo(f"Reliable experiments: {reliable_count}")
         typer.echo(f"Unreliable experiments: {len(evm_results) - reliable_count}")
-    if flows:
+    if flows or trace_flows:
         flow_results = tuple(
             item.attribution for item in workflow.candidates if item.attribution is not None
         )
@@ -1059,6 +1232,17 @@ def show_sandwiches(
         typer.echo(f"Reliable attributions: {reliable_count}")
         typer.echo(f"Unreliable attributions: {len(flow_results) - reliable_count}")
         typer.echo(f"Partial checkpoint sets: {partial_count}")
+    if trace_flows:
+        trace_results = tuple(
+            item.trace_attribution
+            for item in workflow.candidates
+            if item.trace_attribution is not None
+        )
+        reliable_count = sum(item.reliable for item in trace_results)
+        typer.echo("\nObserved trace-attribution diagnostics")
+        typer.echo(f"Trace attributions executed: {len(trace_results)}")
+        typer.echo(f"Reliable trace attributions: {reliable_count}")
+        typer.echo(f"Unreliable trace attributions: {len(trace_results) - reliable_count}")
 
 
 if __name__ == "__main__":

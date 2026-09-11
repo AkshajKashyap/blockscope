@@ -2,7 +2,7 @@
 
 BlockScope is the foundation of a counterfactual Ethereum execution and MEV analysis engine.
 
-## Current status: Milestone 10
+## Current status: Milestone 11
 
 BlockScope currently fetches historical Ethereum blocks and transaction receipts over JSON-RPC,
 normalizes their transactions and logs into provider-independent typed models, and prints concise
@@ -30,11 +30,14 @@ counterfactual** runs the observed branch and an otherwise identical branch with
 front transaction in two independent fresh forks, while leaving the victim request unchanged.
 BlockScope can additionally replay the complete observed front/victim/back cycle and retain exact
 native ETH and candidate-token balances for a narrow, explicitly defined tracked-address set.
+It can trace the locally reproduced front and back transactions, normalize their call trees, and
+reconcile realized native-value calls and transaction-wide Transfer-shaped receipt events with
+those endpoint balances.
 
 Matching the event signature identifies Uniswap V2-compatible events; it does not prove that a
 pair was deployed by the official Uniswap factory. BlockScope queries and displays the pair's
 actual `factory()` address without using it as a detector filter. Generalized MEV classification,
-transaction tracing, wallet-level profit calculation, and arbitrary historical EVM replay are
+counterfactual tracing, wallet-level profit calculation, and arbitrary historical EVM replay are
 **not implemented**.
 
 ## Architecture
@@ -60,12 +63,15 @@ Anvil observed replay
 independent front-omitted EVM counterfactual
      ↓
 observed full-cycle address attribution
+     ↓
+observed local-replay call traces and transaction-wide flow reconciliation
 ```
 
 `types.py` and `rpc.py` own provider-independent Ethereum evidence and upstream access.
 `uniswap_v2.py` and `erc20.py` own the narrow protocol/event semantics currently supported.
 `sandwiches.py`, `economics.py`, `counterfactual.py`, `evm_counterfactual.py`, and
-`observed_attribution.py` own their specific analyses. `replay.py` owns the reusable Anvil branch
+`observed_attribution.py`, `tracing.py`, and `observed_trace.py` own their specific analyses.
+`replay.py` owns the reusable Anvil branch
 primitive and explicit receipt/environment evidence. `sandwich_workflow.py` aligns optional
 candidate analyses for the CLI without placing analytical policy in presentation code.
 
@@ -77,6 +83,11 @@ Three evidence categories remain explicit:
   it does not execute calldata.
 - Forked-EVM experimental evidence comes from unchanged or deliberately altered transaction plans
   executed on fresh Anvil forks, with environment and reliability limitations retained.
+
+Within observed attribution, BlockScope also keeps three sources distinct: checkpoint balances are
+endpoint-state evidence; receipt logs are event evidence; and local Anvil call traces are
+execution-path evidence. Agreement is reported as reconciliation, not treated as proof that any
+one source is universally complete.
 
 ## Setup
 
@@ -127,6 +138,7 @@ blockscope sandwiches 17000000 --economics
 blockscope sandwiches 17000000 --counterfactual
 blockscope sandwiches 17000000 --evm-counterfactual
 blockscope sandwiches 17000000 --flows
+blockscope sandwiches 17000000 --trace-flows
 blockscope replay 17000000 1
 ```
 
@@ -415,6 +427,55 @@ front-omitted counterfactual branch. Because front and back share a sender, omit
 remove the nonce predecessor required by the unchanged historical back; BlockScope does not rewrite
 the nonce, insert a dummy transaction, or otherwise force execution.
 
+## Observed transaction-wide trace attribution
+
+`blockscope sandwiches N --trace-flows` implies the observed full-cycle checkpoint analysis and
+then traces the locally replayed front and back transactions before their Anvil fork is closed. It
+never requires the upstream provider to expose historical debug tracing. Historical hashes and
+local replay hashes are retained separately.
+
+The preferred Anvil request is:
+
+```text
+debug_traceTransaction(local_replay_hash, {"tracer": "callTracer"})
+```
+
+Anvil 1.8.1 returns a directly nested call tree for this request. If that tracer RPC is unavailable,
+BlockScope narrowly falls back to Anvil's `trace_transaction(local_replay_hash)` response and uses
+its explicit `traceAddress` hierarchy. It does not infer a call tree from opcode `structLogs`.
+Malformed responses fail normalization instead of being silently reinterpreted.
+
+Every normalized immutable frame retains a deterministic path (`root`, `root/0`, ...), call type,
+caller, code target, execution context, exact value, bounded input/output evidence, gas fields when
+available, error evidence, and ordered children. CLI output shows only the four-byte selector and
+a small verified local label set rather than dumping calldata. Unknown selectors and call types
+remain unknown. For `DELEGATECALL` and `CALLCODE`, the code target remains distinct from the
+inherited execution context; the target is never described as the account holding the caller's
+balances or storage.
+
+Realized native-flow edges include a successful top-level transaction value exactly once,
+successful value-bearing `CALL`, `CREATE`/`CREATE2` endowments, and `SELFDESTRUCT` transfers when
+the selected backend trace explicitly provides them. Zero-value calls, `STATICCALL`,
+`DELEGATECALL`, `CALLCODE`, errored frames, and every descendant of a reverted parent contribute no
+realized edge. Gas is reconciled separately because it is not an ordinary EVM call. Trace-native
+coverage does not necessarily expose every SELFDESTRUCT-style balance movement, so checkpoint
+balances remain authoritative and any residual is shown exactly.
+
+Front and back receipts are also scanned for every structurally valid
+`Transfer(address,address,uint256)` shape, regardless of emitter. These are called
+"Transfer-shaped" events because the shape alone does not prove standard ERC-20 behavior.
+Emitter `symbol()` and `decimals()` metadata are best effort and never suppress raw evidence.
+Nonzero `from`/`to` addresses form a neutral token-flow participant set; zero-address mint/burn
+shapes remain explicit. Candidate pair assets are separated from additional observed emitters.
+
+A transaction trace is historically attributable only when its local replay matches status,
+normalized receipt semantics, candidate V2 Swap execution, and post-Sync reserves under the
+existing reliability rules. Reverted subcalls stay visible as execution evidence but their rolled
+back effects are excluded from flow accounting. The trace tree can explain how calls led to
+receipt events and endpoint changes, but it cannot establish address ownership, beneficial-owner
+profit, intent, or economic significance. Counterfactual branches and the historical-back nonce
+problem remain outside this tracing milestone.
+
 ## Development
 
 Run the offline test suite and linter with:
@@ -434,5 +495,5 @@ export ETH_RPC_URL=https://your-provider.example
 ```
 
 The verifier checks candidate detection, observed reproduction, mathematical and EVM
-counterfactual agreement, and observed full-cycle attribution without placing fixture constants
-in production analysis code.
+counterfactual agreement, observed full-cycle attribution, and stable high-level trace
+reconciliation facts without placing fixture constants in production analysis code.

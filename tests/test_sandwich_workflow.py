@@ -58,6 +58,7 @@ def test_workflow_aligns_all_optional_evidence_with_its_candidate() -> None:
     mathematical.candidates = (candidate_mathematical,)
     evm = Mock(name="evm")
     attribution = Mock(name="attribution")
+    trace_attribution = Mock(name="trace_attribution")
 
     with (
         patch("blockscope.sandwich_workflow.analyze_block_swaps", return_value=swaps),
@@ -81,6 +82,10 @@ def test_workflow_aligns_all_optional_evidence_with_its_candidate() -> None:
             "blockscope.sandwich_workflow.execute_observed_cycle_attribution",
             return_value=attribution,
         ) as execute_flows,
+        patch(
+            "blockscope.sandwich_workflow.execute_observed_trace_attribution",
+            return_value=trace_attribution,
+        ) as execute_trace,
     ):
         result = analyze_sandwich_workflow(
             rpc,
@@ -92,6 +97,7 @@ def test_workflow_aligns_all_optional_evidence_with_its_candidate() -> None:
                 mathematical_counterfactual=True,
                 evm_counterfactual=True,
                 flows=True,
+                trace_flows=True,
             ),
         )
 
@@ -102,6 +108,7 @@ def test_workflow_aligns_all_optional_evidence_with_its_candidate() -> None:
     assert aligned.mathematical_counterfactual is candidate_mathematical
     assert aligned.evm_counterfactual is evm
     assert aligned.attribution is attribution
+    assert aligned.trace_attribution is trace_attribution
     execute_evm.assert_called_once_with(
         rpc,
         "https://rpc.example",
@@ -117,4 +124,12 @@ def test_workflow_aligns_all_optional_evidence_with_its_candidate() -> None:
         swaps.receipts,
         candidate,
         candidate_economics,
+    )
+    execute_trace.assert_called_once_with(
+        rpc,
+        "https://rpc.example",
+        block,
+        swaps.receipts,
+        candidate,
+        attribution,
     )

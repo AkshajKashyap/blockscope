@@ -278,7 +278,9 @@ class _CheckpointRecorder:
         fork: AnvilFork,
         position: int,
         transaction: Transaction,
+        local_transaction_hash: str | None = None,
     ) -> None:
+        del local_transaction_hash
         del position
         index = transaction.transaction_index
         if index == self.front_index - 1:

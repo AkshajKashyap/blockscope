@@ -275,3 +275,28 @@ def test_sandwiches_flows_flag_is_integrated_without_live_backend() -> None:
     assert result.exit_code == 0
     assert "Observed full-cycle attribution diagnostics" in result.output
     assert "Attributions executed: 0" in result.output
+
+
+def test_sandwiches_trace_flows_flag_implies_flow_prerequisites_without_live_backend() -> None:
+    swap_analysis = BlockSwapAnalysis(
+        17_000_000,
+        (),
+        SwapDiagnostics(0, 0, 0, 0, 0, 0, 0),
+    )
+    rpc = Mock()
+
+    with (
+        patch.dict("os.environ", {"ETH_RPC_URL": "https://rpc.example"}, clear=True),
+        patch("blockscope.cli.EthereumRPC", return_value=rpc),
+        patch(
+            "blockscope.cli.analyze_sandwich_workflow",
+            return_value=empty_sandwich_workflow(swap_analysis),
+        ) as analyze,
+    ):
+        result = runner.invoke(app, ["sandwiches", "17000000", "--trace-flows"])
+
+    assert result.exit_code == 0
+    assert "Observed trace-attribution diagnostics" in result.output
+    assert "Trace attributions executed: 0" in result.output
+    options = analyze.call_args.args[3]
+    assert options.trace_flows is True
