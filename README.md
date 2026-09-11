@@ -2,7 +2,7 @@
 
 BlockScope is the foundation of a counterfactual Ethereum execution and MEV analysis engine.
 
-## Current status: Milestone 11
+## Current status: Milestone 12
 
 BlockScope currently fetches historical Ethereum blocks and transaction receipts over JSON-RPC,
 normalizes their transactions and logs into provider-independent typed models, and prints concise
@@ -475,6 +475,95 @@ back effects are excluded from flow accounting. The trace tree can explain how c
 receipt events and endpoint changes, but it cannot establish address ownership, beneficial-owner
 profit, intent, or economic significance. Counterfactual branches and the historical-back nonce
 problem remain outside this tracing milestone.
+
+## Multi-candidate corpus evaluation
+
+Corpus evaluation is a separate reproducibility tool rather than part of the normal `sandwiches`
+workflow:
+
+```bash
+python scripts/evaluate_corpus.py \
+  --start-block 17000001 \
+  --end-block 17000008 \
+  --candidate-limit 50 \
+  --evm-limit 5 \
+  --evm-cooldown-seconds 90
+```
+
+The inclusive block range is fixed before outcomes are inspected. Blocks are scanned in ascending
+order, and candidates are ordered by block, front transaction index/log index, and back execution
+position. Candidate and EVM limits select the first records in that order only; provenance,
+mathematical outputs, replay behavior, and apparent outcome never influence selection. Every
+strict candidate is still counted and serialized, including candidates beyond an expensive-stage
+limit. The golden block `17000000` remains separate unless it naturally occurs in an explicitly
+chosen range.
+
+Evaluation is staged:
+
+```text
+block/receipt/V2 scan
+  → strict candidate detection
+  → canonical provenance and fixed-input mathematics
+  → first-N observed/front-omitted EVM experiments
+  → exact math/EVM comparison
+```
+
+No Anvil process is launched for a block without a candidate selected for EVM validation. Trace
+attribution is recorded as not attempted and remains disabled for this initial corpus tool. The
+existing two-fork EVM API reports combined observed/counterfactual timing; splitting that timer
+would require invasive instrumentation, so the artifact labels it explicitly rather than
+inventing separate measurements.
+
+The JSON artifact defaults to `artifacts/evaluation_<start>_<end>.json`. It records the inclusive
+range, limits, selection rule, UTC creation time, BlockScope version, Git commit/dirty state, Anvil
+version, per-block hardfork selection, request counts, block diagnostics, candidate outcomes,
+failure taxonomy, and mean/median stage timings. It contains no RPC URL, raw block, raw receipt, or
+raw trace payload. Writes are atomic at completion; this initial bounded runner does not implement
+resume/checkpoint machinery.
+
+RPC request counts cover direct BlockScope upstream calls. Anvil's internal fork-provider requests
+are not observable through this narrow wrapper and are explicitly excluded rather than estimated.
+The initial range was preregistered as `17000001–17000050`; the public endpoint returned HTTP 429
+for 33/50 blocks and all expensive experiments. Following the predefined rate-limit policy, the
+completed study uses the deterministic first eight-block prefix, `17000001–17000008`, without
+selecting blocks or candidates by outcome. Its configuration records a fixed 90-second cooldown
+between scanning and EVM execution so Anvil begins after the public endpoint's request window has
+recovered; the cooldown is operational configuration, not analytical selection.
+
+Provider, Anvil, supported-input, and replay operational failures become bounded typed outcomes so
+one bad case need not discard the corpus. Unexpected exceptions and invariant violations still
+fail loudly. Reports always retain numerators and denominators and describe only the selected
+evaluation range, not Ethereum MEV generally.
+
+The initial completed corpus result is:
+
+```text
+range:                         17000001–17000008
+blocks completed:             8/8
+transactions / receipts:      819 / 819
+V2-compatible swaps:          88 across 52 pairs
+strict candidates:            3 (all single-victim, all canonical)
+observed replay exact:         3/3 attempted
+reliable front-omitted EVM:   3/3 attempted
+victim success -> revert:      0
+candidate-pair Swap absent:    0
+pair input unchanged/changed: 2/1
+math/EVM exact:                2/3 comparisons
+```
+
+The nonzero comparison is candidate 3 in block `17000008`. Its observed pair input was
+`809676432957450567`; without the front transaction the unchanged victim call supplied
+`777864049811781303` and still received exactly `10000000000000000`. The fixed-input model instead
+predicted `10373772338413816`, so exact EVM output minus mathematical output was
+`-373772338413816`. This demonstrates empirically that fixed pair input is not a universal
+transaction-level assumption. The behavior is compatible with exact-output-style execution, but
+BlockScope does not infer user intent from it.
+
+This eight-block evaluation is evidence about only this selected range. It contains no
+multi-victim or noncanonical candidate and is not representative evidence for Ethereum MEV as a
+whole. The machine-readable result is
+`artifacts/evaluation_17000001_17000008.json`; the earlier 50- and 10-block attempts are retained as
+explicit HTTP-429 failure artifacts.
 
 ## Development
 

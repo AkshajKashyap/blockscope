@@ -1,0 +1,700 @@
+{
+  "blocks": [
+    {
+      "block_ingestion_seconds": 0.23863837998942472,
+      "block_number": 17000001,
+      "candidate_detection_seconds": 0.000251134013524279,
+      "continuous_pair_segments": 9,
+      "duplicate_candidates_suppressed": 0,
+      "failure_detail": null,
+      "failure_kind": null,
+      "invalid_reserve_reconstructions": 0,
+      "malformed_swap_logs": 0,
+      "malformed_sync_logs": 0,
+      "metadata_lookup_failures": 0,
+      "potential_front_legs_considered": 14,
+      "receipt_v2_analysis_seconds": 10.398015200014925,
+      "receipts_fetched": 116,
+      "rejected_adverse_movement": 0,
+      "rejected_back_run_reversal": 0,
+      "rejected_closing_sender_mismatch": 0,
+      "rejected_invalid_leg_sequence": 2,
+      "rejected_invalid_quote": 0,
+      "rejected_no_closing_back_run": 0,
+      "rejected_no_victims": 11,
+      "state": "complete",
+      "strict_candidates_found": 1,
+      "swap_count": 14,
+      "swap_pair_addresses": [
+        "0x20aad7312582c9a2acdf11f876940048d7c57bf3",
+        "0x325df33f9894d8243c41eeb76f3b8d0c250091e5",
+        "0x34b6f33a5d88fca1b8f78a510bc81673611a68f0",
+        "0x394cb9e147b8b288e38615ae04f442a037bcb99f",
+        "0x5b49001c8b756ab44b6ec3bcd1ea3f3a1c3cd758",
+        "0xa5e9c917b4b821e4e0a5bbefce078ab6540d6b5e",
+        "0xc0d776e2223c9a2ad13433dab7ec08cb9c5e76ae",
+        "0xe471f93c2be15b64e9ec63bbf485446cb934e8c4",
+        "0xfabc74ffbf25b185bd80bd11a650fdda37b9f52d"
+      ],
+      "swaps_without_reconstructed_reserves": 0,
+      "transaction_count": 116,
+      "unique_pair_count": 9
+    },
+    {
+      "block_ingestion_seconds": 0.0551716280169785,
+      "block_number": 17000002,
+      "candidate_detection_seconds": 0.00011562000145204365,
+      "continuous_pair_segments": 10,
+      "duplicate_candidates_suppressed": 0,
+      "failure_detail": null,
+      "failure_kind": null,
+      "invalid_reserve_reconstructions": 0,
+      "malformed_swap_logs": 0,
+      "malformed_sync_logs": 0,
+      "metadata_lookup_failures": 0,
+      "potential_front_legs_considered": 13,
+      "receipt_v2_analysis_seconds": 8.9769368559937,
+      "receipts_fetched": 61,
+      "rejected_adverse_movement": 0,
+      "rejected_back_run_reversal": 0,
+      "rejected_closing_sender_mismatch": 0,
+      "rejected_invalid_leg_sequence": 3,
+      "rejected_invalid_quote": 0,
+      "rejected_no_closing_back_run": 0,
+      "rejected_no_victims": 10,
+      "state": "complete",
+      "strict_candidates_found": 0,
+      "swap_count": 13,
+      "swap_pair_addresses": [
+        "0x1174913016458adc8b2935924801dab93ab68bcd",
+        "0x3a67cf946742f93eb6cf9e5d7204f876025e4d50",
+        "0x4b1e9a9de809ce968c7dfb0e66f91bb7d794f3ed",
+        "0x4bacaaabe3e96959ddf3269d3092d5cea88fefe9",
+        "0x52780f93ffaf68b86e38fb80e571d6282f21c811",
+        "0x6a5015c449e345283ab9466d1d2fec0cbfce2697",
+        "0x99b975590364dfdea0ed8550d0d862c78e07c43d",
+        "0xa4fab57e94c8d84c258f7cacd56af7f66c36c9c4",
+        "0xcda3d331eee54e5b2224270e40f24d96abd469d0",
+        "0xd8a07e9fe071106bf29536b93e8c9a26527af787"
+      ],
+      "swaps_without_reconstructed_reserves": 0,
+      "transaction_count": 61,
+      "unique_pair_count": 10
+    },
+    {
+      "block_ingestion_seconds": 0.05911528802243993,
+      "block_number": 17000003,
+      "candidate_detection_seconds": 4.42549935542047e-05,
+      "continuous_pair_segments": 12,
+      "duplicate_candidates_suppressed": 0,
+      "failure_detail": null,
+      "failure_kind": null,
+      "invalid_reserve_reconstructions": 0,
+      "malformed_swap_logs": 0,
+      "malformed_sync_logs": 0,
+      "metadata_lookup_failures": 0,
+      "potential_front_legs_considered": 14,
+      "receipt_v2_analysis_seconds": 12.496599117992446,
+      "receipts_fetched": 118,
+      "rejected_adverse_movement": 0,
+      "rejected_back_run_reversal": 0,
+      "rejected_closing_sender_mismatch": 0,
+      "rejected_invalid_leg_sequence": 1,
+      "rejected_invalid_quote": 0,
+      "rejected_no_closing_back_run": 0,
+      "rejected_no_victims": 13,
+      "state": "complete",
+      "strict_candidates_found": 0,
+      "swap_count": 14,
+      "swap_pair_addresses": [
+        "0x0c4a68cf6857cc76fe946d04fe85fac5fae9625e",
+        "0x1c8a9844091d5136b50f5b04b30de9e564ce397b",
+        "0x34b6f33a5d88fca1b8f78a510bc81673611a68f0",
+        "0x4bacaaabe3e96959ddf3269d3092d5cea88fefe9",
+        "0x4eb19b39376445aafd4896f8a752542a6cc6ee7a",
+        "0x5b49001c8b756ab44b6ec3bcd1ea3f3a1c3cd758",
+        "0x684b00a5773679f88598a19976fbeb25a68e9a5f",
+        "0x9c4fe5ffd9a9fc5678cfbd93aa2d4fd684b67c4c",
+        "0xb4e16d0168e52d35cacd2c6185b44281ec28c9dc",
+        "0xc0f086ac5aa2f7bf2b9273fe65f5c01d2353f6d4",
+        "0xc364ecf5a501983fe1deaa490d9d056397a0fbb0",
+        "0xde64d541dd2790faa13f1b9a0cce38831da3678d"
+      ],
+      "swaps_without_reconstructed_reserves": 0,
+      "transaction_count": 118,
+      "unique_pair_count": 12
+    },
+    {
+      "block_ingestion_seconds": 0.06298068500473164,
+      "block_number": 17000004,
+      "candidate_detection_seconds": 2.335099270567298e-05,
+      "continuous_pair_segments": 4,
+      "duplicate_candidates_suppressed": 0,
+      "failure_detail": null,
+      "failure_kind": null,
+      "invalid_reserve_reconstructions": 0,
+      "malformed_swap_logs": 0,
+      "malformed_sync_logs": 0,
+      "metadata_lookup_failures": 0,
+      "potential_front_legs_considered": 4,
+      "receipt_v2_analysis_seconds": 6.718670069996733,
+      "receipts_fetched": 97,
+      "rejected_adverse_movement": 0,
+      "rejected_back_run_reversal": 0,
+      "rejected_closing_sender_mismatch": 0,
+      "rejected_invalid_leg_sequence": 0,
+      "rejected_invalid_quote": 0,
+      "rejected_no_closing_back_run": 0,
+      "rejected_no_victims": 4,
+      "state": "complete",
+      "strict_candidates_found": 0,
+      "swap_count": 4,
+      "swap_pair_addresses": [
+        "0x7dd3f5705504002dc946aeafe6629b9481b72272",
+        "0xc54ba7aabe7164ca2aa092900060fe2ba6eccd8b",
+        "0xcda3d331eee54e5b2224270e40f24d96abd469d0",
+        "0xfabc74ffbf25b185bd80bd11a650fdda37b9f52d"
+      ],
+      "swaps_without_reconstructed_reserves": 0,
+      "transaction_count": 97,
+      "unique_pair_count": 4
+    },
+    {
+      "block_ingestion_seconds": 0.05133231499348767,
+      "block_number": 17000005,
+      "candidate_detection_seconds": 5.6828983360901475e-05,
+      "continuous_pair_segments": 8,
+      "duplicate_candidates_suppressed": 0,
+      "failure_detail": null,
+      "failure_kind": null,
+      "invalid_reserve_reconstructions": 0,
+      "malformed_swap_logs": 0,
+      "malformed_sync_logs": 0,
+      "metadata_lookup_failures": 0,
+      "potential_front_legs_considered": 11,
+      "receipt_v2_analysis_seconds": 9.112815895990934,
+      "receipts_fetched": 94,
+      "rejected_adverse_movement": 0,
+      "rejected_back_run_reversal": 0,
+      "rejected_closing_sender_mismatch": 0,
+      "rejected_invalid_leg_sequence": 2,
+      "rejected_invalid_quote": 0,
+      "rejected_no_closing_back_run": 0,
+      "rejected_no_victims": 9,
+      "state": "complete",
+      "strict_candidates_found": 0,
+      "swap_count": 11,
+      "swap_pair_addresses": [
+        "0x0d4a11d5eeaac28ec3f61d100daf4d40471f1852",
+        "0x3fa5db0910afc2a1e6de45039ea217410fb8641d",
+        "0x570febdf89c07f256c75686caca215289bb11cfc",
+        "0xa0300b4edb87c33c0fcf20d968575595d11c9249",
+        "0xa14e051af256157ce093aa54cb3b2f775358f559",
+        "0xa7480aafa8ad2af3ce24ac6853f960ae6ac7f0c4",
+        "0xc0d776e2223c9a2ad13433dab7ec08cb9c5e76ae",
+        "0xcda3d331eee54e5b2224270e40f24d96abd469d0"
+      ],
+      "swaps_without_reconstructed_reserves": 0,
+      "transaction_count": 94,
+      "unique_pair_count": 8
+    },
+    {
+      "block_ingestion_seconds": 0.08092036601738073,
+      "block_number": 17000006,
+      "candidate_detection_seconds": 1.9956001779064536e-05,
+      "continuous_pair_segments": 2,
+      "duplicate_candidates_suppressed": 0,
+      "failure_detail": null,
+      "failure_kind": null,
+      "invalid_reserve_reconstructions": 0,
+      "malformed_swap_logs": 0,
+      "malformed_sync_logs": 0,
+      "metadata_lookup_failures": 0,
+      "potential_front_legs_considered": 2,
+      "receipt_v2_analysis_seconds": 3.721968736004783,
+      "receipts_fetched": 55,
+      "rejected_adverse_movement": 0,
+      "rejected_back_run_reversal": 0,
+      "rejected_closing_sender_mismatch": 0,
+      "rejected_invalid_leg_sequence": 0,
+      "rejected_invalid_quote": 0,
+      "rejected_no_closing_back_run": 0,
+      "rejected_no_victims": 2,
+      "state": "complete",
+      "strict_candidates_found": 0,
+      "swap_count": 2,
+      "swap_pair_addresses": [
+        "0x20aad7312582c9a2acdf11f876940048d7c57bf3",
+        "0x34b6f33a5d88fca1b8f78a510bc81673611a68f0"
+      ],
+      "swaps_without_reconstructed_reserves": 0,
+      "transaction_count": 55,
+      "unique_pair_count": 2
+    },
+    {
+      "block_ingestion_seconds": 0.07032692199572921,
+      "block_number": 17000007,
+      "candidate_detection_seconds": 3.958400338888168e-05,
+      "continuous_pair_segments": 8,
+      "duplicate_candidates_suppressed": 0,
+      "failure_detail": null,
+      "failure_kind": null,
+      "invalid_reserve_reconstructions": 0,
+      "malformed_swap_logs": 0,
+      "malformed_sync_logs": 0,
+      "metadata_lookup_failures": 0,
+      "potential_front_legs_considered": 11,
+      "receipt_v2_analysis_seconds": 11.021685007988708,
+      "receipts_fetched": 145,
+      "rejected_adverse_movement": 0,
+      "rejected_back_run_reversal": 0,
+      "rejected_closing_sender_mismatch": 0,
+      "rejected_invalid_leg_sequence": 2,
+      "rejected_invalid_quote": 0,
+      "rejected_no_closing_back_run": 1,
+      "rejected_no_victims": 8,
+      "state": "complete",
+      "strict_candidates_found": 0,
+      "swap_count": 11,
+      "swap_pair_addresses": [
+        "0x34b6f33a5d88fca1b8f78a510bc81673611a68f0",
+        "0x55d5c232d921b9eaa6b37b5845e439acd04b4dba",
+        "0xa869a73473807cc297a3c8345953b7c17983ade9",
+        "0xbc0eb0b7927be77b70c62c8589692f6cb919d8d0",
+        "0xca9722485609cc26879c12ca9feea31dc6888a63",
+        "0xcda3d331eee54e5b2224270e40f24d96abd469d0",
+        "0xe816182f3564889dd54470ccdb72aa05d955ac78",
+        "0xe818c14f926a17918b5a32b850af1acc00e25521"
+      ],
+      "swaps_without_reconstructed_reserves": 0,
+      "transaction_count": 145,
+      "unique_pair_count": 8
+    },
+    {
+      "block_ingestion_seconds": 0.09211884401156567,
+      "block_number": 17000008,
+      "candidate_detection_seconds": 9.653702727518976e-05,
+      "continuous_pair_segments": 14,
+      "duplicate_candidates_suppressed": 0,
+      "failure_detail": null,
+      "failure_kind": null,
+      "invalid_reserve_reconstructions": 0,
+      "malformed_swap_logs": 0,
+      "malformed_sync_logs": 0,
+      "metadata_lookup_failures": 0,
+      "potential_front_legs_considered": 19,
+      "receipt_v2_analysis_seconds": 14.039420236978913,
+      "receipts_fetched": 133,
+      "rejected_adverse_movement": 0,
+      "rejected_back_run_reversal": 0,
+      "rejected_closing_sender_mismatch": 0,
+      "rejected_invalid_leg_sequence": 1,
+      "rejected_invalid_quote": 0,
+      "rejected_no_closing_back_run": 0,
+      "rejected_no_victims": 16,
+      "state": "complete",
+      "strict_candidates_found": 2,
+      "swap_count": 19,
+      "swap_pair_addresses": [
+        "0x06da0fd433c1a5d7a4faa01111c044910a184553",
+        "0x397ff1542f962076d0bfe58ea045ffa2d347aca0",
+        "0x4a3d1fd5f8ab514622d364ba20f325beb3327856",
+        "0x534044106b09d0c15d3248917a23d52646d374bb",
+        "0x58ed237525f5b35e733f5e8e4e7fd11c080eaccc",
+        "0x5b49001c8b756ab44b6ec3bcd1ea3f3a1c3cd758",
+        "0x775c7be6d34d2a2dc9844590e7c649c5517a0ccd",
+        "0xc0d776e2223c9a2ad13433dab7ec08cb9c5e76ae",
+        "0xc15e41eb55af2c0f7c34fb150a688f672d4b1be2",
+        "0xcaf0d17d073b94cfc1ed5992a3e71914ca042ac7",
+        "0xcda3d331eee54e5b2224270e40f24d96abd469d0",
+        "0xe219a14e355c1cb3f43594655a63488da154e8eb",
+        "0xf88a07aa601662ec10ca84b47c786cee9b506cdf",
+        "0xfabc74ffbf25b185bd80bd11a650fdda37b9f52d"
+      ],
+      "swaps_without_reconstructed_reserves": 0,
+      "transaction_count": 133,
+      "unique_pair_count": 14
+    },
+    {
+      "block_ingestion_seconds": 0.05652467900654301,
+      "block_number": 17000009,
+      "candidate_detection_seconds": 0.0,
+      "continuous_pair_segments": 0,
+      "duplicate_candidates_suppressed": 0,
+      "failure_detail": "Could not fetch receipt for transaction 0x13b7920840c7d84643c165cf2618832b8414c73fc98045a47c97d47adee2547a: 429 Client Error: Too Many Requests for url: https://eth-mainnet.g.alchemy.com/<redacted>",
+      "failure_kind": "provider_error",
+      "invalid_reserve_reconstructions": 0,
+      "malformed_swap_logs": 0,
+      "malformed_sync_logs": 0,
+      "metadata_lookup_failures": 0,
+      "potential_front_legs_considered": 0,
+      "receipt_v2_analysis_seconds": 4.393234690011013,
+      "receipts_fetched": 57,
+      "rejected_adverse_movement": 0,
+      "rejected_back_run_reversal": 0,
+      "rejected_closing_sender_mismatch": 0,
+      "rejected_invalid_leg_sequence": 0,
+      "rejected_invalid_quote": 0,
+      "rejected_no_closing_back_run": 0,
+      "rejected_no_victims": 0,
+      "state": "provider_failure",
+      "strict_candidates_found": 0,
+      "swap_count": 0,
+      "swap_pair_addresses": [],
+      "swaps_without_reconstructed_reserves": 0,
+      "transaction_count": 93,
+      "unique_pair_count": 0
+    },
+    {
+      "block_ingestion_seconds": 2.0529342210211325,
+      "block_number": 17000010,
+      "candidate_detection_seconds": 0.0,
+      "continuous_pair_segments": 0,
+      "duplicate_candidates_suppressed": 0,
+      "failure_detail": "Could not fetch Ethereum block 17000010: 429 Client Error: Too Many Requests for url: https://eth-mainnet.g.alchemy.com/<redacted>",
+      "failure_kind": "provider_error",
+      "invalid_reserve_reconstructions": 0,
+      "malformed_swap_logs": 0,
+      "malformed_sync_logs": 0,
+      "metadata_lookup_failures": 0,
+      "potential_front_legs_considered": 0,
+      "receipt_v2_analysis_seconds": 0.0,
+      "receipts_fetched": 0,
+      "rejected_adverse_movement": 0,
+      "rejected_back_run_reversal": 0,
+      "rejected_closing_sender_mismatch": 0,
+      "rejected_invalid_leg_sequence": 0,
+      "rejected_invalid_quote": 0,
+      "rejected_no_closing_back_run": 0,
+      "rejected_no_victims": 0,
+      "state": "provider_failure",
+      "strict_candidates_found": 0,
+      "swap_count": 0,
+      "swap_pair_addresses": [],
+      "swaps_without_reconstructed_reserves": 0,
+      "transaction_count": 0,
+      "unique_pair_count": 0
+    }
+  ],
+  "candidates": [
+    {
+      "back_transaction": {
+        "transaction_hash": "0x1269d92275cd3adb52e799cb911653ac697135803ac8b9c25b8a39ca445fb297",
+        "transaction_index": 2
+      },
+      "block_number": 17000001,
+      "counterfactual_pair_input": null,
+      "counterfactual_pair_output": null,
+      "counterfactual_pair_swap_present": null,
+      "counterfactual_victim_status": null,
+      "evm_counterfactual": "failed",
+      "evm_seconds": 2.105716089019552,
+      "failure_details": [
+        "Could not determine Ethereum chain ID: 429 Client Error: Too Many Requests for url: https://eth-mainnet.g.alchemy.com/<redacted>"
+      ],
+      "failure_kinds": [
+        "provider_error"
+      ],
+      "front_transaction": {
+        "transaction_hash": "0x39cd4f06f5cb93f108bb53c4687e3048da9b38a494c30344f6a1ef3f413644cc",
+        "transaction_index": 0
+      },
+      "math_vs_evm_difference": null,
+      "mathematical_output": 776317600811767342,
+      "mathematical_seconds": 0.1445740420022048,
+      "mathematical_state": "available",
+      "mathematical_victims": [
+        {
+          "mathematical_output": 776317600811767342,
+          "observed_pair_input": 400000000000000000000000000,
+          "observed_pair_output": 758290758783768355,
+          "transaction_index": 1
+        }
+      ],
+      "observed_pair_input": null,
+      "observed_pair_output": null,
+      "observed_replay": "provider_failure",
+      "observed_victim_status": null,
+      "ordinal": 1,
+      "pair_address": "0xc0d776e2223c9a2ad13433dab7ec08cb9c5e76ae",
+      "pair_input_comparison": "UNAVAILABLE",
+      "provenance": "canonical",
+      "provenance_reason": "canonical mainnet factory and getPair() both match",
+      "selected_for_candidate_analysis": true,
+      "selected_for_evm": true,
+      "trace_attribution": "not_attempted",
+      "victim_transactions": [
+        {
+          "transaction_hash": "0xf0bb5fa1b30e6bfe67e3813e224e19cc9e10e222d70f3a8fc116d0763f84cc7e",
+          "transaction_index": 1
+        }
+      ]
+    },
+    {
+      "back_transaction": {
+        "transaction_hash": "0xec8001f6a2e313ca05426be28ea31bbd5683487804424eb5fc295872506264a7",
+        "transaction_index": 3
+      },
+      "block_number": 17000008,
+      "counterfactual_pair_input": null,
+      "counterfactual_pair_output": null,
+      "counterfactual_pair_swap_present": null,
+      "counterfactual_victim_status": null,
+      "evm_counterfactual": "failed",
+      "evm_seconds": 2.05012574599823,
+      "failure_details": [
+        "Could not determine Ethereum chain ID: 429 Client Error: Too Many Requests for url: https://eth-mainnet.g.alchemy.com/<redacted>"
+      ],
+      "failure_kinds": [
+        "provider_error"
+      ],
+      "front_transaction": {
+        "transaction_hash": "0x31f99ed06567dc861ce6242afb01ff1957702ab2e9f3a4b28bc6c00b479ddbbd",
+        "transaction_index": 0
+      },
+      "math_vs_evm_difference": null,
+      "mathematical_output": 13410667794056573,
+      "mathematical_seconds": 0.13805293198674917,
+      "mathematical_state": "available",
+      "mathematical_victims": [
+        {
+          "mathematical_output": 13410667794056573,
+          "observed_pair_input": 400000000000000000,
+          "observed_pair_output": 12772091833455707,
+          "transaction_index": 1
+        }
+      ],
+      "observed_pair_input": null,
+      "observed_pair_output": null,
+      "observed_replay": "provider_failure",
+      "observed_victim_status": null,
+      "ordinal": 2,
+      "pair_address": "0xfabc74ffbf25b185bd80bd11a650fdda37b9f52d",
+      "pair_input_comparison": "UNAVAILABLE",
+      "provenance": "canonical",
+      "provenance_reason": "canonical mainnet factory and getPair() both match",
+      "selected_for_candidate_analysis": true,
+      "selected_for_evm": true,
+      "trace_attribution": "not_attempted",
+      "victim_transactions": [
+        {
+          "transaction_hash": "0x4b839b008de4734a0a83b3fb30e81d7f0f8105c9ff0ad80082d75a12e182b4e3",
+          "transaction_index": 1
+        }
+      ]
+    },
+    {
+      "back_transaction": {
+        "transaction_hash": "0xec8001f6a2e313ca05426be28ea31bbd5683487804424eb5fc295872506264a7",
+        "transaction_index": 3
+      },
+      "block_number": 17000008,
+      "counterfactual_pair_input": null,
+      "counterfactual_pair_output": null,
+      "counterfactual_pair_swap_present": null,
+      "counterfactual_victim_status": null,
+      "evm_counterfactual": "failed",
+      "evm_seconds": 2.0502061120059807,
+      "failure_details": [
+        "Could not determine Ethereum chain ID: 429 Client Error: Too Many Requests for url: https://eth-mainnet.g.alchemy.com/<redacted>"
+      ],
+      "failure_kinds": [
+        "provider_error"
+      ],
+      "front_transaction": {
+        "transaction_hash": "0x31f99ed06567dc861ce6242afb01ff1957702ab2e9f3a4b28bc6c00b479ddbbd",
+        "transaction_index": 0
+      },
+      "math_vs_evm_difference": null,
+      "mathematical_output": 10373772338413816,
+      "mathematical_seconds": 0.13805293198674917,
+      "mathematical_state": "available",
+      "mathematical_victims": [
+        {
+          "mathematical_output": 10373772338413816,
+          "observed_pair_input": 809676432957450567,
+          "observed_pair_output": 10000000000000000,
+          "transaction_index": 2
+        }
+      ],
+      "observed_pair_input": null,
+      "observed_pair_output": null,
+      "observed_replay": "provider_failure",
+      "observed_victim_status": null,
+      "ordinal": 3,
+      "pair_address": "0x4a3d1fd5f8ab514622d364ba20f325beb3327856",
+      "pair_input_comparison": "UNAVAILABLE",
+      "provenance": "canonical",
+      "provenance_reason": "canonical mainnet factory and getPair() both match",
+      "selected_for_candidate_analysis": true,
+      "selected_for_evm": true,
+      "trace_attribution": "not_attempted",
+      "victim_transactions": [
+        {
+          "transaction_hash": "0x894350c9d181b5d9e45b5cf8a0d7dbcbfdd11275bfaf73fa2d9d5965765a6005",
+          "transaction_index": 2
+        }
+      ]
+    }
+  ],
+  "configuration": {
+    "candidate_limit": 50,
+    "end_block": 17000010,
+    "evm_experiment_limit": 5,
+    "selection_rule": "ascending block number, then front transaction index/log index; first limits only",
+    "start_block": 17000001
+  },
+  "created_at_utc": "2026-09-11T16:29:52.504538+00:00",
+  "failure_taxonomy": [
+    {
+      "count": 5,
+      "kind": "provider_error"
+    }
+  ],
+  "hardfork_selections": [
+    {
+      "block_number": 17000001,
+      "hardfork": "paris"
+    },
+    {
+      "block_number": 17000002,
+      "hardfork": "paris"
+    },
+    {
+      "block_number": 17000003,
+      "hardfork": "paris"
+    },
+    {
+      "block_number": 17000004,
+      "hardfork": "paris"
+    },
+    {
+      "block_number": 17000005,
+      "hardfork": "paris"
+    },
+    {
+      "block_number": 17000006,
+      "hardfork": "paris"
+    },
+    {
+      "block_number": 17000007,
+      "hardfork": "paris"
+    },
+    {
+      "block_number": 17000008,
+      "hardfork": "paris"
+    },
+    {
+      "block_number": 17000009,
+      "hardfork": "paris"
+    }
+  ],
+  "metrics": {
+    "blocks_completed": 8,
+    "blocks_inspected": 10,
+    "candidate_analysis_not_evaluated": 0,
+    "canonical_candidates": 3,
+    "counterfactual_pair_swap_absent": 0,
+    "counterfactual_pair_swap_present": 0,
+    "detector_potential_front_legs": 88,
+    "detector_rejected_adverse_movement": 0,
+    "detector_rejected_back_run_reversal": 0,
+    "detector_rejected_closing_sender_mismatch": 0,
+    "detector_rejected_invalid_leg_sequence": 11,
+    "detector_rejected_invalid_quote": 0,
+    "detector_rejected_no_closing_back_run": 1,
+    "detector_rejected_no_victims": 73,
+    "evm_comparison_unavailable": 3,
+    "evm_counterfactual_attempted": 3,
+    "evm_counterfactual_reliable": 0,
+    "invalid_reserve_reconstructions": 0,
+    "malformed_swap_logs": 0,
+    "malformed_sync_logs": 0,
+    "math_evm_comparisons": 0,
+    "math_evm_exact_matches": 0,
+    "math_evm_nonzero_differences": 0,
+    "math_model_unavailable": 0,
+    "mathematical_model_eligible": 3,
+    "metadata_lookup_failures": 0,
+    "multi_victim_candidates": 0,
+    "noncanonical_candidates": 0,
+    "observed_replay_attempted": 3,
+    "observed_replay_environment_failures": 0,
+    "observed_replay_exact": 0,
+    "observed_replay_other_failures": 0,
+    "observed_replay_provider_failures": 3,
+    "observed_replay_semantic_mismatches": 0,
+    "observed_replay_submission_failures": 0,
+    "observed_replay_unsupported_transaction_types": 0,
+    "pair_input_changed": 0,
+    "pair_input_unchanged": 0,
+    "provenance_unavailable_candidates": 0,
+    "receipts_fetched": 876,
+    "single_victim_candidates": 3,
+    "strict_candidates": 3,
+    "swaps_without_reconstructed_reserves": 0,
+    "target_success_to_revert": 0,
+    "target_success_to_success": 0,
+    "transactions_inspected": 912,
+    "unique_pairs": 52,
+    "v2_compatible_swaps": 88
+  },
+  "rpc_requests": {
+    "blocks": 9,
+    "chain_ids": 5,
+    "historical_calls": 352,
+    "receipts": 876,
+    "scope": "direct BlockScope upstream calls; excludes Anvil's internal fork-provider calls"
+  },
+  "schema_version": 1,
+  "software": {
+    "anvil_version": "anvil Version: 1.8.1\nCommit SHA: 982849d3140c01fd3b72905759581a132df7aa98\nBuild Timestamp: 2026-08-28T17:46:00.964391484Z (1787939160)\nBuild Profile: dist",
+    "blockscope_version": "0.1.0",
+    "git_commit": "95220442acea25eaa93b74f21f4675215b0852ee",
+    "git_worktree_dirty": true
+  },
+  "timings": [
+    {
+      "count": 10,
+      "mean_seconds": 0.28200633280794135,
+      "median_seconds": 0.06665380350023042,
+      "stage": "block_ingestion",
+      "total_seconds": 2.8200633280794136
+    },
+    {
+      "count": 10,
+      "mean_seconds": 8.087934581097215,
+      "median_seconds": 9.044876375992317,
+      "stage": "receipt_v2_analysis",
+      "total_seconds": 80.87934581097215
+    },
+    {
+      "count": 10,
+      "mean_seconds": 6.472660170402378e-05,
+      "median_seconds": 4.191949847154319e-05,
+      "stage": "candidate_detection",
+      "total_seconds": 0.0006472660170402378
+    },
+    {
+      "count": 3,
+      "mean_seconds": 0.14022663532523438,
+      "median_seconds": 0.13805293198674917,
+      "stage": "provenance_and_mathematical_counterfactual",
+      "total_seconds": 0.42067990597570315
+    },
+    {
+      "count": 3,
+      "mean_seconds": 2.0686826490079206,
+      "median_seconds": 2.0502061120059807,
+      "stage": "observed_and_counterfactual_evm_combined",
+      "total_seconds": 6.206047947023762
+    },
+    {
+      "count": 0,
+      "mean_seconds": null,
+      "median_seconds": null,
+      "stage": "optional_trace_attribution",
+      "total_seconds": 0
+    }
+  ]
+}
