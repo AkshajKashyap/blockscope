@@ -49,7 +49,7 @@ app = typer.Typer(no_args_is_help=True)
 
 @app.callback()
 def main() -> None:
-    """Inspect Ethereum blocks, MEV evidence, and execution replays."""
+    """Analyze Ethereum MEV evidence with mathematical and forked-EVM experiments."""
 
 
 def _short(value: str, length: int = 12) -> str:
@@ -528,7 +528,7 @@ def _evm_counterfactual_lines(result: CounterfactualEVMExecution) -> tuple[str, 
             f"delta={receipt.log_count_delta} content={receipt.log_content.value}"
         ),
         "Mathematical V2 cross-check",
-        f"  Milestone 6 output: {pair.mathematical_counterfactual_output}",
+        f"  Fixed-input mathematical output: {pair.mathematical_counterfactual_output}",
         f"  Model vs EVM: {pair.model_vs_evm.value}",
         f"  EVM minus mathematical output: {pair.model_vs_evm_output_delta}",
         "Experimental isolation",
@@ -1032,7 +1032,7 @@ def show_replay(
         typer.Argument(min=0, help="Target transaction index within the block"),
     ],
 ) -> None:
-    """Replay a target and its complete block prefix on an observed Anvil fork."""
+    """Reproduce a target and its complete block prefix on an Anvil fork."""
     try:
         upstream_url = rpc_url_from_env()
         report = replay_observed_transaction(
@@ -1064,7 +1064,7 @@ def show_sandwiches(
         bool,
         typer.Option(
             "--counterfactual",
-            help="Show canonical fixed-input pair-level victim replay",
+            help="Calculate canonical fixed-input pair-level victim output",
         ),
     ] = False,
     evm_counterfactual: Annotated[
@@ -1089,7 +1089,7 @@ def show_sandwiches(
         ),
     ] = False,
 ) -> None:
-    """Display conservative strict sandwich candidates in a block."""
+    """Detect conservative sandwich candidates and optionally test their execution."""
     try:
         if evm_counterfactual or flows or trace_flows:
             upstream_url = rpc_url_from_env()

@@ -11,7 +11,7 @@ from blockscope.evaluation import (
     run_evaluation,
     write_evaluation_artifact,
 )
-from blockscope.rpc import EthereumRPC, rpc_url_from_env
+from blockscope.rpc import ConfigurationError, EthereumRPC, rpc_url_from_env
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,7 +38,10 @@ def main() -> None:
     output = args.output or Path(
         f"artifacts/evaluation_{configuration.start_block}_{configuration.end_block}.json"
     )
-    rpc_url = rpc_url_from_env()
+    try:
+        rpc_url = rpc_url_from_env()
+    except ConfigurationError as exc:
+        raise SystemExit(f"Error: {exc}") from exc
     artifact = run_evaluation(
         EthereumRPC(rpc_url),
         rpc_url,

@@ -1,6 +1,6 @@
 """Opt-in live verification for BlockScope's Ethereum block 17,000,000 fixture."""
 
-from blockscope.rpc import EthereumRPC, rpc_url_from_env
+from blockscope.rpc import ConfigurationError, EthereumRPC, rpc_url_from_env
 from blockscope.sandwich_workflow import SandwichWorkflowOptions, analyze_sandwich_workflow
 
 BLOCK_NUMBER = 17_000_000
@@ -98,4 +98,7 @@ def verify() -> None:
 
 
 if __name__ == "__main__":
-    verify()
+    try:
+        verify()
+    except ConfigurationError as exc:
+        raise SystemExit(f"Error: {exc}") from exc

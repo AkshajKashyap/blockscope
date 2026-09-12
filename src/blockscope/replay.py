@@ -37,7 +37,7 @@ class ReplayInputError(ReplayError):
 
 
 class UnsupportedTransactionType(ReplayInputError):
-    """Raised for transaction envelopes this milestone does not support."""
+    """Raised for transaction envelope types the replay engine does not support."""
 
 
 class ReplaySubmissionStatus(StrEnum):
